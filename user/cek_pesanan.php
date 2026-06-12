@@ -100,6 +100,25 @@
                     
                     // Handle variable column name safely
                     $tgl = isset($d['tgl_pesan']) ? $d['tgl_pesan'] : (isset($d['tanggal_pesan']) ? $d['tanggal_pesan'] : 'Unknown');
+                    
+                    // Badge class & text mapping
+                    $badge_class = 'bg-success';
+                    $status_text = strtoupper($status);
+                    if ($status == 'pending') {
+                        $badge_class = 'bg-warning text-dark';
+                    } elseif ($status == 'batal') {
+                        $badge_class = 'bg-danger';
+                        $status_text = 'DIBATALKAN';
+                    } elseif ($status == 'proses') {
+                        $badge_class = 'bg-info text-dark';
+                        $status_text = 'DIPROSES';
+                    } elseif ($status == 'dikirim') {
+                        $badge_class = 'bg-primary';
+                        $status_text = 'DIKIRIM';
+                    } elseif ($status == 'selesai') {
+                        $badge_class = 'bg-success';
+                        $status_text = 'SELESAI';
+                    }
                     ?>
                     <div class="card card-custom p-4 mb-3 bg-white">
                         <div class="d-flex justify-content-between align-items-center mb-3">
@@ -107,25 +126,38 @@
                                 <h5 class="fw-bold mb-0">Order #<?php echo $d['id_pesanan']; ?></h5>
                                 <small class="text-muted"><?php echo date('d M Y', strtotime($tgl)); ?></small>
                             </div>
-                            <span class="badge rounded-pill <?php echo ($status=='pending')?'bg-warning text-dark':'bg-success'; ?> px-3">
-                                <?php echo strtoupper($status); ?>
+                            <span class="badge rounded-pill <?php echo $badge_class; ?> px-3">
+                                <?php echo $status_text; ?>
                             </span>
                         </div>
                         
-                        <div class="timeline mt-4">
-                            <li class="timeline-item <?php echo $step1; ?>">
-                                <div class="timeline-icon"><i class="bi bi-cart-check"></i></div>
-                                <div class="timeline-text">Dipesan</div>
-                            </li>
-                            <li class="timeline-item <?php echo $step2; ?>">
-                                <div class="timeline-icon"><i class="bi bi-box-seam"></i></div>
-                                <div class="timeline-text">Diproses</div>
-                            </li>
-                            <li class="timeline-item <?php echo $step3; ?>">
-                                <div class="timeline-icon"><i class="bi bi-truck"></i></div>
-                                <div class="timeline-text">Dikirim</div>
-                            </li>
-                        </div>
+                        <?php if ($status == 'batal'): ?>
+                            <div class="alert alert-danger d-flex align-items-start mt-4 border-0 rounded-3 shadow-sm bg-danger-subtle text-danger" role="alert">
+                                <i class="bi bi-exclamation-triangle-fill fs-5 me-3 mt-1"></i>
+                                <div>
+                                    <h6 class="fw-bold mb-1">Pesanan Dibatalkan</h6>
+                                    <p class="mb-0 small">
+                                        <strong>Alasan Pembatalan:</strong><br>
+                                        <?php echo !empty($d['catatan_batal']) ? htmlspecialchars($d['catatan_batal']) : 'Tidak ada catatan alasan pembatalan.'; ?>
+                                    </p>
+                                </div>
+                            </div>
+                        <?php else: ?>
+                            <div class="timeline mt-4">
+                                <li class="timeline-item <?php echo $step1; ?>">
+                                    <div class="timeline-icon"><i class="bi bi-cart-check"></i></div>
+                                    <div class="timeline-text">Dipesan</div>
+                                </li>
+                                <li class="timeline-item <?php echo $step2; ?>">
+                                    <div class="timeline-icon"><i class="bi bi-box-seam"></i></div>
+                                    <div class="timeline-text">Diproses</div>
+                                </li>
+                                <li class="timeline-item <?php echo $step3; ?>">
+                                    <div class="timeline-icon"><i class="bi bi-truck"></i></div>
+                                    <div class="timeline-text">Dikirim</div>
+                                </li>
+                            </div>
+                        <?php endif; ?>
                         
                         <div class="mt-3 bg-light p-3 rounded-3">
                             <div class="d-flex justify-content-between">

@@ -46,6 +46,12 @@ try {
         mysqli_query($koneksi, "ALTER TABLE pesanan ADD COLUMN tipe_pesanan VARCHAR(20) DEFAULT 'online'");
     }
 
+    // Check and add missing columns to pesanan table (catatan_batal)
+    $check_catatan_batal = mysqli_query($koneksi, "SHOW COLUMNS FROM pesanan LIKE 'catatan_batal'");
+    if(mysqli_num_rows($check_catatan_batal) == 0) {
+        mysqli_query($koneksi, "ALTER TABLE pesanan ADD COLUMN catatan_batal VARCHAR(255) DEFAULT NULL");
+    }
+
     mysqli_query($koneksi, "CREATE TABLE IF NOT EXISTS admin_users (
         id INT AUTO_INCREMENT PRIMARY KEY,
         username VARCHAR(50) NOT NULL UNIQUE,

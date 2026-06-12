@@ -82,6 +82,7 @@ $sql = "CREATE TABLE IF NOT EXISTS pesanan (
     metode_bayar VARCHAR(20) DEFAULT 'cod',
     status VARCHAR(20) DEFAULT 'pending',
     tipe_pesanan VARCHAR(20) DEFAULT 'online',
+    catatan_batal VARCHAR(255) DEFAULT NULL,
     tgl_pesan TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )";
 if(mysqli_query($koneksi, $sql)) {

@@ -112,7 +112,7 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
                                          <a href="pesanan.php?kirim=<?php echo $o['id_pesanan']; ?>" class="btn btn-action btn-send rounded-pill">
                                              <i class="bi bi-send me-1"></i> Kirim
                                          </a>
-                                         <a href="pesanan.php?batal=<?php echo $o['id_pesanan']; ?>" class="btn btn-action btn-danger rounded-pill" onclick="return confirm('Tolak/batalkan pesanan ini?')">
+                                         <a href="#" class="btn btn-action btn-danger rounded-pill" onclick="return batalkanPesanan(<?php echo $o['id_pesanan']; ?>)">
                                              <i class="bi bi-x-circle me-1"></i> Batalkan
                                          </a>
                                     <?php endif; ?>
@@ -140,6 +140,11 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
             <div class="modal-header"><h5>Isi Nota #<?php echo $o['id_pesanan']; ?></h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
             <div class="modal-body">
                 <p class="small bg-light p-2 rounded"><strong>Alamat:</strong> <?php echo $o['alamat_penerima']; ?></p>
+                <?php if ($o['status'] == 'batal' && !empty($o['catatan_batal'])): ?>
+                <div class="alert alert-danger p-2 small mb-3">
+                    <strong>Alasan Batal:</strong> <?php echo htmlspecialchars($o['catatan_batal']); ?>
+                </div>
+                <?php endif; ?>
                 <table class="table table-sm">
                     <thead><tr><th>Barang</th><th>Qty</th><th>Subtotal</th></tr></thead>
                     <tbody>
@@ -172,12 +177,13 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
     
     if(isset($_GET['batal'])) {
         $id = (int)$_GET['batal'];
+        $alasan = isset($_GET['alasan']) ? mysqli_real_escape_string($koneksi, trim($_GET['alasan'])) : 'Dibatalkan oleh admin';
         $d = mysqli_fetch_assoc(mysqli_query($koneksi, "SELECT * FROM pesanan WHERE id_pesanan='$id'"));
         $wa = (substr($d['no_telp'], 0, 1) == '0') ? '62'.substr($d['no_telp'], 1) : $d['no_telp'];
-        mysqli_query($koneksi, "UPDATE pesanan SET status='batal' WHERE id_pesanan='$id'");
+        mysqli_query($koneksi, "UPDATE pesanan SET status='batal', catatan_batal='$alasan' WHERE id_pesanan='$id'");
         mysqli_query($koneksi, "UPDATE payment_confirmations SET status='rejected' WHERE id_pesanan='$id'");
         
-        $link = "https://api.whatsapp.com/send?phone=$wa&text=".urlencode("Halo ".$d['nama_penerima'].", mohon maaf pesanan #$id terpaksa kami batalkan karena alasan tertentu. Silakan hubungi kami jika ada pertanyaan.");
+        $link = "https://api.whatsapp.com/send?phone=$wa&text=".urlencode("Halo ".$d['nama_penerima'].", mohon maaf pesanan #$id terpaksa kami batalkan dengan alasan: $alasan. Silakan hubungi kami jika ada pertanyaan.");
         echo "<script>alert('Pesanan berhasil dibatalkan!'); window.open('$link', '_blank'); window.location='pesanan.php';</script>";
     }
     
@@ -189,5 +195,19 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
     }
     ?>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+    function batalkanPesanan(id) {
+        var alasan = prompt("Masukkan alasan pembatalan pesanan:");
+        if (alasan === null) {
+            return false;
+        }
+        if (alasan.trim() === "") {
+            alert("Alasan pembatalan harus diisi!");
+            return false;
+        }
+        window.location.href = "pesanan.php?batal=" + id + "&alasan=" + encodeURIComponent(alasan);
+        return false;
+    }
+    </script>
 </body>
 </html>
