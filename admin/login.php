@@ -1,81 +1,109 @@
 <?php
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
 session_start();
 include '../config.php';
 
-// Auto-run Database Migrations on page load to prevent errors
-mysqli_query($koneksi, "CREATE TABLE IF NOT EXISTS cabang (
-    id_cabang INT AUTO_INCREMENT PRIMARY KEY,
-    nama_cabang VARCHAR(100) NOT NULL,
-    alamat TEXT NULL,
-    no_telp VARCHAR(20) NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)");
-
-$check_cabang = mysqli_query($koneksi, "SELECT COUNT(*) as total FROM cabang");
-$cabang_count = mysqli_fetch_assoc($check_cabang);
-if($cabang_count['total'] == 0) {
-    mysqli_query($koneksi, "INSERT INTO cabang (id_cabang, nama_cabang, alamat, no_telp) VALUES 
-        (1, 'Toko Utama (Pusat / Online)', 'Jl. Sudirman No. 1, Jakarta', '021-5550123'),
-        (2, 'Cabang Bandung', 'Jl. Asia Afrika No. 45, Bandung', '022-7770456'),
-        (3, 'Cabang Surabaya', 'Jl. Tunjungan No. 88, Surabaya', '031-8880789')
-    ");
+if (!isset($koneksi) || !$koneksi) {
+    die("<h3>Koneksi database gagal!</h3><p>Pastikan file <b>config.php</b> berada di folder utama htdocs dan konfigurasi database Anda sudah benar.</p>");
 }
 
-mysqli_query($koneksi, "CREATE TABLE IF NOT EXISTS admin_users (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    username VARCHAR(50) NOT NULL UNIQUE,
-    password VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)");
+try {
+    // Auto-run Database Migrations on page load to prevent errors
+    mysqli_query($koneksi, "CREATE TABLE IF NOT EXISTS cabang (
+        id_cabang INT AUTO_INCREMENT PRIMARY KEY,
+        nama_cabang VARCHAR(100) NOT NULL,
+        alamat TEXT NULL,
+        no_telp VARCHAR(20) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )");
 
-$check_role = mysqli_query($koneksi, "SHOW COLUMNS FROM admin_users LIKE 'role'");
-if(mysqli_num_rows($check_role) == 0) {
-    mysqli_query($koneksi, "ALTER TABLE admin_users ADD COLUMN role VARCHAR(20) DEFAULT 'admin'");
-}
-$check_user_cabang = mysqli_query($koneksi, "SHOW COLUMNS FROM admin_users LIKE 'id_cabang'");
-if(mysqli_num_rows($check_user_cabang) == 0) {
-    mysqli_query($koneksi, "ALTER TABLE admin_users ADD COLUMN id_cabang INT DEFAULT 1");
-}
+    $check_cabang = mysqli_query($koneksi, "SELECT COUNT(*) as total FROM cabang");
+    $cabang_count = mysqli_fetch_assoc($check_cabang);
+    if($cabang_count['total'] == 0) {
+        mysqli_query($koneksi, "INSERT INTO cabang (id_cabang, nama_cabang, alamat, no_telp) VALUES 
+            (1, 'Toko Utama (Pusat / Online)', 'Jl. Sudirman No. 1, Jakarta', '021-5550123'),
+            (2, 'Cabang Bandung', 'Jl. Asia Afrika No. 45, Bandung', '022-7770456'),
+            (3, 'Cabang Surabaya', 'Jl. Tunjungan No. 88, Surabaya', '031-8880789')
+        ");
+    }
 
-$check_admin = mysqli_query($koneksi, "SELECT * FROM admin_users WHERE username = 'admin'");
-if (mysqli_num_rows($check_admin) == 0) {
-    $pass = password_hash('admin123', PASSWORD_DEFAULT);
-    mysqli_query($koneksi, "INSERT INTO admin_users (username, password, role, id_cabang) VALUES ('admin', '$pass', 'admin', 1)");
-} else {
-    mysqli_query($koneksi, "UPDATE admin_users SET role = 'admin', id_cabang = 1 WHERE username = 'admin'");
-}
+    // Check and add missing columns to produk table (barcode & stok)
+    $check_barcode = mysqli_query($koneksi, "SHOW COLUMNS FROM produk LIKE 'barcode'");
+    if(mysqli_num_rows($check_barcode) == 0) {
+        mysqli_query($koneksi, "ALTER TABLE produk ADD COLUMN barcode VARCHAR(100) DEFAULT NULL");
+    }
+    $check_stok_col = mysqli_query($koneksi, "SHOW COLUMNS FROM produk LIKE 'stok'");
+    if(mysqli_num_rows($check_stok_col) == 0) {
+        mysqli_query($koneksi, "ALTER TABLE produk ADD COLUMN stok INT DEFAULT 0");
+    }
 
-$check_kasir_bdg = mysqli_query($koneksi, "SELECT * FROM admin_users WHERE username = 'kasir_bandung'");
-if(mysqli_num_rows($check_kasir_bdg) == 0) {
-    $pass_bdg = password_hash('kasir123', PASSWORD_DEFAULT);
-    mysqli_query($koneksi, "INSERT INTO admin_users (username, password, role, id_cabang) VALUES ('kasir_bandung', '$pass_bdg', 'kasir', 2)");
-}
-$check_kasir_sby = mysqli_query($koneksi, "SELECT * FROM admin_users WHERE username = 'kasir_surabaya'");
-if(mysqli_num_rows($check_kasir_sby) == 0) {
-    $pass_sby = password_hash('kasir123', PASSWORD_DEFAULT);
-    mysqli_query($koneksi, "INSERT INTO admin_users (username, password, role, id_cabang) VALUES ('kasir_surabaya', '$pass_sby', 'kasir', 3)");
-}
+    // Check and add missing columns to pesanan table (tipe_pesanan)
+    $check_tipe_pesanan = mysqli_query($koneksi, "SHOW COLUMNS FROM pesanan LIKE 'tipe_pesanan'");
+    if(mysqli_num_rows($check_tipe_pesanan) == 0) {
+        mysqli_query($koneksi, "ALTER TABLE pesanan ADD COLUMN tipe_pesanan VARCHAR(20) DEFAULT 'online'");
+    }
 
-mysqli_query($koneksi, "CREATE TABLE IF NOT EXISTS stok_cabang (
-    id_produk INT NOT NULL,
-    id_cabang INT NOT NULL,
-    stok INT NOT NULL DEFAULT 0,
-    PRIMARY KEY (id_produk, id_cabang)
-)");
+    mysqli_query($koneksi, "CREATE TABLE IF NOT EXISTS admin_users (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        username VARCHAR(50) NOT NULL UNIQUE,
+        password VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )");
 
-$check_order_cabang = mysqli_query($koneksi, "SHOW COLUMNS FROM pesanan LIKE 'id_cabang'");
-if(mysqli_num_rows($check_order_cabang) == 0) {
-    mysqli_query($koneksi, "ALTER TABLE pesanan ADD COLUMN id_cabang INT DEFAULT 1");
-}
+    $check_role = mysqli_query($koneksi, "SHOW COLUMNS FROM admin_users LIKE 'role'");
+    if(mysqli_num_rows($check_role) == 0) {
+        mysqli_query($koneksi, "ALTER TABLE admin_users ADD COLUMN role VARCHAR(20) DEFAULT 'admin'");
+    }
+    $check_user_cabang = mysqli_query($koneksi, "SHOW COLUMNS FROM admin_users LIKE 'id_cabang'");
+    if(mysqli_num_rows($check_user_cabang) == 0) {
+        mysqli_query($koneksi, "ALTER TABLE admin_users ADD COLUMN id_cabang INT DEFAULT 1");
+    }
 
-// Seed stock records for existing products
-$res_prods = mysqli_query($koneksi, "SELECT id, stok FROM produk");
-while($p = mysqli_fetch_assoc($res_prods)) {
-    $pid = $p['id'];
-    $main_stok = $p['stok'] !== null ? (int)$p['stok'] : 10;
-    mysqli_query($koneksi, "INSERT IGNORE INTO stok_cabang (id_produk, id_cabang, stok) VALUES ('$pid', 1, '$main_stok')");
-    mysqli_query($koneksi, "INSERT IGNORE INTO stok_cabang (id_produk, id_cabang, stok) VALUES ('$pid', 2, 0)");
-    mysqli_query($koneksi, "INSERT IGNORE INTO stok_cabang (id_produk, id_cabang, stok) VALUES ('$pid', 3, 0)");
+    $check_admin = mysqli_query($koneksi, "SELECT * FROM admin_users WHERE username = 'admin'");
+    if (mysqli_num_rows($check_admin) == 0) {
+        $pass = password_hash('admin123', PASSWORD_DEFAULT);
+        mysqli_query($koneksi, "INSERT INTO admin_users (username, password, role, id_cabang) VALUES ('admin', '$pass', 'admin', 1)");
+    } else {
+        mysqli_query($koneksi, "UPDATE admin_users SET role = 'admin', id_cabang = 1 WHERE username = 'admin'");
+    }
+
+    $check_kasir_bdg = mysqli_query($koneksi, "SELECT * FROM admin_users WHERE username = 'kasir_bandung'");
+    if(mysqli_num_rows($check_kasir_bdg) == 0) {
+        $pass_bdg = password_hash('kasir123', PASSWORD_DEFAULT);
+        mysqli_query($koneksi, "INSERT INTO admin_users (username, password, role, id_cabang) VALUES ('kasir_bandung', '$pass_bdg', 'kasir', 2)");
+    }
+    $check_kasir_sby = mysqli_query($koneksi, "SELECT * FROM admin_users WHERE username = 'kasir_surabaya'");
+    if(mysqli_num_rows($check_kasir_sby) == 0) {
+        $pass_sby = password_hash('kasir123', PASSWORD_DEFAULT);
+        mysqli_query($koneksi, "INSERT INTO admin_users (username, password, role, id_cabang) VALUES ('kasir_surabaya', '$pass_sby', 'kasir', 3)");
+    }
+
+    mysqli_query($koneksi, "CREATE TABLE IF NOT EXISTS stok_cabang (
+        id_produk INT NOT NULL,
+        id_cabang INT NOT NULL,
+        stok INT NOT NULL DEFAULT 0,
+        PRIMARY KEY (id_produk, id_cabang)
+    )");
+
+    $check_order_cabang = mysqli_query($koneksi, "SHOW COLUMNS FROM pesanan LIKE 'id_cabang'");
+    if(mysqli_num_rows($check_order_cabang) == 0) {
+        mysqli_query($koneksi, "ALTER TABLE pesanan ADD COLUMN id_cabang INT DEFAULT 1");
+    }
+
+    // Seed stock records for existing products
+    $res_prods = mysqli_query($koneksi, "SELECT id, stok FROM produk");
+    while($p = mysqli_fetch_assoc($res_prods)) {
+        $pid = $p['id'];
+        $main_stok = $p['stok'] !== null ? (int)$p['stok'] : 10;
+        mysqli_query($koneksi, "INSERT IGNORE INTO stok_cabang (id_produk, id_cabang, stok) VALUES ('$pid', 1, '$main_stok')");
+        mysqli_query($koneksi, "INSERT IGNORE INTO stok_cabang (id_produk, id_cabang, stok) VALUES ('$pid', 2, 0)");
+        mysqli_query($koneksi, "INSERT IGNORE INTO stok_cabang (id_produk, id_cabang, stok) VALUES ('$pid', 3, 0)");
+    }
+} catch (Throwable $e) {
+    die("Database Migration Error: " . $e->getMessage() . " di baris " . $e->getLine() . "<br><br>Silakan periksa koneksi atau izin database hosting Anda.");
 }
 
 if (isset($_SESSION['admin_logged_in']) && $_SESSION['admin_logged_in'] === true) {

@@ -1,4 +1,8 @@
 <?php 
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
 session_start();
 include '../config.php'; 
 
@@ -14,35 +18,39 @@ if ($id_cabang > 1) {
     $branch_filter_sql = " AND id_cabang = '$id_cabang'";
 }
 
-// Query weekly sales (last 7 days)
-$sales_data_online = [0, 0, 0, 0, 0, 0, 0];
-$sales_data_offline = [0, 0, 0, 0, 0, 0, 0];
-$day_names = [];
+try {
+    // Query weekly sales (last 7 days)
+    $sales_data_online = [0, 0, 0, 0, 0, 0, 0];
+    $sales_data_offline = [0, 0, 0, 0, 0, 0, 0];
+    $day_names = [];
 
-for ($i = 6; $i >= 0; $i--) {
-    $date = date('Y-m-d', strtotime("-$i days"));
-    $day_name = date('D', strtotime("-$i days"));
-    
-    $days_in = [
-        'Mon' => 'Senin',
-        'Tue' => 'Selasa',
-        'Wed' => 'Rabu',
-        'Thu' => 'Kamis',
-        'Fri' => 'Jumat',
-        'Sat' => 'Sabtu',
-        'Sun' => 'Minggu'
-    ];
-    $day_names[] = $days_in[$day_name] ?? $day_name;
-    
-    // Online
-    $q_online = mysqli_query($koneksi, "SELECT SUM(total_bayar) as total FROM pesanan WHERE DATE(tgl_pesan) = '$date' AND tipe_pesanan = 'online' AND status IN ('dikirim', 'selesai') $branch_filter_sql");
-    $d_online = mysqli_fetch_assoc($q_online);
-    $sales_data_online[6 - $i] = (int)($d_online['total'] ?? 0);
-    
-    // Offline
-    $q_offline = mysqli_query($koneksi, "SELECT SUM(total_bayar) as total FROM pesanan WHERE DATE(tgl_pesan) = '$date' AND tipe_pesanan = 'offline' $branch_filter_sql");
-    $d_offline = mysqli_fetch_assoc($q_offline);
-    $sales_data_offline[6 - $i] = (int)($d_offline['total'] ?? 0);
+    for ($i = 6; $i >= 0; $i--) {
+        $date = date('Y-m-d', strtotime("-$i days"));
+        $day_name = date('D', strtotime("-$i days"));
+        
+        $days_in = [
+            'Mon' => 'Senin',
+            'Tue' => 'Selasa',
+            'Wed' => 'Rabu',
+            'Thu' => 'Kamis',
+            'Fri' => 'Jumat',
+            'Sat' => 'Sabtu',
+            'Sun' => 'Minggu'
+        ];
+        $day_names[] = $days_in[$day_name] ?? $day_name;
+        
+        // Online
+        $q_online = mysqli_query($koneksi, "SELECT SUM(total_bayar) as total FROM pesanan WHERE DATE(tgl_pesan) = '$date' AND tipe_pesanan = 'online' AND status IN ('dikirim', 'selesai') $branch_filter_sql");
+        $d_online = mysqli_fetch_assoc($q_online);
+        $sales_data_online[6 - $i] = (int)($d_online['total'] ?? 0);
+        
+        // Offline
+        $q_offline = mysqli_query($koneksi, "SELECT SUM(total_bayar) as total FROM pesanan WHERE DATE(tgl_pesan) = '$date' AND tipe_pesanan = 'offline' $branch_filter_sql");
+        $d_offline = mysqli_fetch_assoc($q_offline);
+        $sales_data_offline[6 - $i] = (int)($d_offline['total'] ?? 0);
+    }
+} catch (Throwable $e) {
+    die("<h3>Dashboard Error: Gagal memuat data penjualan</h3><p>Pesan Error: " . $e->getMessage() . " di baris " . $e->getLine() . "</p>");
 }
 ?>
 <!DOCTYPE html>

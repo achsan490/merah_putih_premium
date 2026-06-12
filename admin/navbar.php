@@ -14,6 +14,14 @@ $jumlah_pending = $data_pesanan['total'];
         width: 260px; height: 100vh; background: var(--grad-merah);
         position: fixed; color: white; z-index: 1000;
         box-shadow: 4px 0 15px rgba(0,0,0,0.1);
+        overflow-y: auto;
+    }
+    .sidebar::-webkit-scrollbar {
+        width: 5px;
+    }
+    .sidebar::-webkit-scrollbar-thumb {
+        background-color: rgba(255, 255, 255, 0.2);
+        border-radius: 10px;
     }
     .sidebar-header { padding: 30px 20px; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.1); }
     .nav-link-side {

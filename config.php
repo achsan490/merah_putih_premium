@@ -8,6 +8,18 @@ if (isset($_SESSION['admin_logged_in']) && $_SESSION['admin_logged_in'] === true
     $_SESSION['customer_cabang_nama'] = $_SESSION['nama_cabang'] ?? 'Cabang';
 }
 
-$koneksi = mysqli_connect("localhost", "root", "", "merahputih");
-if (!$koneksi) { die("Koneksi gagal: " . mysqli_connect_error()); }
+// Konfigurasi Database InfinityFree
+$db_host = "sql107.infinityfree.com";
+$db_user = "if0_42167050";
+$db_pass = "d83PkcwBqNUpw6";
+$db_name = "if0_42167050_merahputih";
+
+// Pastikan PHP menampilkan error jika ada masalah koneksi (untuk mempermudah debug)
+mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+
+try {
+    $koneksi = mysqli_connect($db_host, $db_user, $db_pass, $db_name);
+} catch (Throwable $e) {
+    die("Koneksi database gagal! Silakan periksa kembali Hostname atau Nama Database di config.php. <br><br>Pesan Error: " . $e->getMessage());
+}
 ?>

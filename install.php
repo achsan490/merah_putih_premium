@@ -4,9 +4,15 @@
  * Run this ONCE on production server, then DELETE this file
  */
 
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
 include 'config.php';
 
 echo "<h2>MerahPutih - Database Setup</h2>";
+
+try {
 
 // Create all necessary tables
 $tables_created = 0;
@@ -50,12 +56,14 @@ if(mysqli_query($koneksi, $sql)) {
 $sql = "CREATE TABLE IF NOT EXISTS produk (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nama_produk VARCHAR(255) NOT NULL,
+    barcode VARCHAR(100) DEFAULT NULL,
     harga INT NOT NULL,
     harga_grosir INT DEFAULT NULL,
     min_qty_grosir INT DEFAULT 2,
     deskripsi TEXT,
     foto VARCHAR(255),
     kategori_id INT DEFAULT 5,
+    stok INT DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (kategori_id) REFERENCES categories(id) ON DELETE SET NULL
 )";
@@ -73,6 +81,7 @@ $sql = "CREATE TABLE IF NOT EXISTS pesanan (
     total_bayar INT NOT NULL,
     metode_bayar VARCHAR(20) DEFAULT 'cod',
     status VARCHAR(20) DEFAULT 'pending',
+    tipe_pesanan VARCHAR(20) DEFAULT 'online',
     tgl_pesan TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )";
 if(mysqli_query($koneksi, $sql)) {
@@ -173,4 +182,8 @@ echo "<li>❗ Update payment method details in admin panel</li>";
 echo "<li>❗ DELETE this file (install.php) for security</li>";
 echo "<li>❗ Update config.php with production database credentials</li>";
 echo "</ul>";
+} catch (Exception $e) {
+    echo "<h3 style='color:red;'>Terjadi kesalahan saat membuat database:</h3>";
+    echo "<p>" . $e->getMessage() . "</p>";
+}
 ?>
