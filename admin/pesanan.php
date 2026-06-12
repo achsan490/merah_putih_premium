@@ -96,6 +96,9 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
                                 } elseif($o['status'] == 'paid') {
                                     $badge_class = 'bg-info text-dark';
                                     $status_text = 'DIBAYAR';
+                                } elseif($o['status'] == 'batal') {
+                                    $badge_class = 'bg-danger';
+                                    $status_text = 'BATAL';
                                 }
                                 ?>
                                 <span class="badge rounded-pill <?php echo $badge_class; ?>"><?php echo $status_text; ?></span>
@@ -106,9 +109,12 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
                                         <i class="bi bi-eye me-1"></i> Detail
                                     </button>
                                     <?php if($o['status'] == 'pending' || $o['status'] == 'paid'): ?>
-                                        <a href="pesanan.php?kirim=<?php echo $o['id_pesanan']; ?>" class="btn btn-action btn-send rounded-pill">
-                                            <i class="bi bi-send me-1"></i> Kirim
-                                        </a>
+                                         <a href="pesanan.php?kirim=<?php echo $o['id_pesanan']; ?>" class="btn btn-action btn-send rounded-pill">
+                                             <i class="bi bi-send me-1"></i> Kirim
+                                         </a>
+                                         <a href="pesanan.php?batal=<?php echo $o['id_pesanan']; ?>" class="btn btn-action btn-danger rounded-pill" onclick="return confirm('Tolak/batalkan pesanan ini?')">
+                                             <i class="bi bi-x-circle me-1"></i> Batalkan
+                                         </a>
                                     <?php endif; ?>
                                     <?php if($o['status'] == 'dikirim'): ?>
                                         <a href="pesanan.php?selesai=<?php echo $o['id_pesanan']; ?>" class="btn btn-sm btn-success rounded-pill" onclick="return confirm('Tandai pesanan ini sebagai selesai?')">
@@ -162,6 +168,17 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
         $id = (int)$_GET['selesai'];
         mysqli_query($koneksi, "UPDATE pesanan SET status='selesai' WHERE id_pesanan='$id'");
         echo "<script>alert('Pesanan ditandai sebagai selesai!'); window.location='pesanan.php';</script>";
+    }
+    
+    if(isset($_GET['batal'])) {
+        $id = (int)$_GET['batal'];
+        $d = mysqli_fetch_assoc(mysqli_query($koneksi, "SELECT * FROM pesanan WHERE id_pesanan='$id'"));
+        $wa = (substr($d['no_telp'], 0, 1) == '0') ? '62'.substr($d['no_telp'], 1) : $d['no_telp'];
+        mysqli_query($koneksi, "UPDATE pesanan SET status='batal' WHERE id_pesanan='$id'");
+        mysqli_query($koneksi, "UPDATE payment_confirmations SET status='rejected' WHERE id_pesanan='$id'");
+        
+        $link = "https://api.whatsapp.com/send?phone=$wa&text=".urlencode("Halo ".$d['nama_penerima'].", mohon maaf pesanan #$id terpaksa kami batalkan karena alasan tertentu. Silakan hubungi kami jika ada pertanyaan.");
+        echo "<script>alert('Pesanan berhasil dibatalkan!'); window.open('$link', '_blank'); window.location='pesanan.php';</script>";
     }
     
     if(isset($_GET['hapus'])) {
