@@ -9,65 +9,61 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
 <!DOCTYPE html>
 <html lang="id">
 <head>
-    <title>Pesanan Masuk - MerahPutih</title>
+    <link rel="icon" href="../assets/favicon.png" type="image/png">
+    <title>Pesanan Masuk - MerahPutih Admin</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
-    <style> 
-        .main-content { margin-left: 260px; padding: 40px; } 
-        .card-premium { border: none; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); }
-        .btn-action { 
-            padding: 6px 16px; 
-            font-weight: 500; 
-            font-size: 13px; 
-            transition: all 0.3s ease;
-            border: none;
-        }
-        .btn-action:hover { 
-            transform: translateY(-1px); 
-            box-shadow: 0 4px 8px rgba(0,0,0,0.12);
-        }
-        .btn-detail { 
-            background: #f8f9fa; 
-            color: #495057;
-            border: 1px solid #dee2e6;
-        }
-        .btn-detail:hover { 
-            background: #e9ecef; 
-            color: #212529;
-            border-color: #adb5bd;
-        }
-        .btn-send { 
-            background: #8b0000; 
-            color: white;
-        }
-        .btn-send:hover { 
-            background: #a00000; 
-            color: white;
-        }
-        .btn-delete { 
-            background: white; 
-            color: #6c757d; 
-            border: 1px solid #dee2e6;
-        }
-        .btn-delete:hover { 
-            background: #dc3545; 
-            color: white; 
-            border-color: #dc3545;
-        }
+    <style>
+        *, body { font-family: 'Plus Jakarta Sans', sans-serif !important; }
+        body { background: #F0F4FF; }
+        .main-content { margin-left: 268px; padding: 0; }
+        .topbar { height: 68px; background: white; border-bottom: 1px solid rgba(0,0,0,0.06); display: flex; align-items: center; justify-content: space-between; padding: 0 32px; position: sticky; top: 0; z-index: 500; box-shadow: 0 2px 12px rgba(0,0,0,0.04); }
+        .topbar h1 { font-size: 1.15rem; font-weight: 700; color: #1A1A2E; margin: 0; }
+        .topbar p { font-size: 0.78rem; color: #8A8AA0; margin: 0; }
+        .content-wrap { padding: 28px 32px; }
+        .card-premium { background: white; border: none; border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.04); overflow: hidden; }
+        .table thead th { background: #F8F8FF; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #9A9AB0; border-bottom: 1px solid #EEEEF8; padding: 14px 16px; }
+        .table tbody td { padding: 13px 16px; border-bottom: 1px solid #F5F5FF; vertical-align: middle; font-size: 0.87rem; }
+        .table tbody tr:hover td { background: #FAFAFF; }
+        .table tbody tr:last-child td { border-bottom: none; }
+        .btn-action { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: 8px; font-size: 0.78rem; font-weight: 600; border: none; cursor: pointer; transition: all 0.2s; text-decoration: none; }
+        .btn-detail { background: #F8F8FF; color: #4A4A6A; border: 1px solid #E8E8F5; }
+        .btn-detail:hover { background: #EEEEFF; color: #1A1A2E; }
+        .btn-send { background: #1A1A2E; color: white; } .btn-send:hover { background: #0F3460; color: white; }
+        .btn-done { background: #ECFDF5; color: #059669; border: 1px solid #A7F3D0; } .btn-done:hover { background: #059669; color: white; }
+        .btn-cancel { background: #FEF0EE; color: #C0392B; border: 1px solid #FECDC8; } .btn-cancel:hover { background: #C0392B; color: white; }
+        .btn-delete { background: #F8F8FF; color: #9CA3AF; border: 1px solid #E8E8F5; } .btn-delete:hover { background: #EF4444; color: white; border-color: #EF4444; }
+        .status-badge { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 20px; font-size: 0.72rem; font-weight: 700; }
+        .badge-pending { background: #FFFBEB; color: #D97706; border: 1px solid #FDE68A; }
+        .badge-paid { background: #EFF6FF; color: #3B82F6; border: 1px solid #BFDBFE; }
+        .badge-dikirim { background: #EFF6FF; color: #6366F1; border: 1px solid #C7D2FE; }
+        .badge-selesai { background: #ECFDF5; color: #059669; border: 1px solid #A7F3D0; }
+        .badge-batal { background: #FEF2F2; color: #DC2626; border: 1px solid #FECACA; }
+        .badge-default { background: #F8F8FF; color: #6A6A8A; border: 1px solid #E8E8F5; }
+        .modal-content { border: none; border-radius: 20px; box-shadow: 0 30px 80px rgba(0,0,0,0.15); }
+        .modal-header { background: #F8F8FF; border-bottom: 1px solid #EEEEF8; border-radius: 20px 20px 0 0; padding: 20px 24px; }
+        @media (max-width: 992px) { .main-content { margin-left: 0; } }
     </style>
 </head>
 <body>
     <?php include 'navbar.php'; ?>
 
     <div class="main-content">
-        <div class="card card-premium p-4 bg-white">
-            <h4 class="fw-bold mb-4">Daftar Nota Pesanan</h4>
+        <div class="topbar">
+            <div>
+                <h1>Pesanan Online</h1>
+                <p>Kelola dan proses pesanan dari pelanggan</p>
+            </div>
+        </div>
+
+        <div class="content-wrap">
+        <div class="card-premium">
             <div class="table-responsive">
-                <table class="table table-hover align-middle">
-                    <thead class="table-light">
+                <table class="table mb-0">
+                    <thead>
                         <tr>
-                            <th>No. Nota</th><th>Pelanggan</th><th>Tanggal</th><th>Total</th><th>Status</th><th class="text-center">Aksi</th>
+                            <th>No. Nota</th><th>Pelanggan</th><th>Tanggal</th><th>Total</th><th>Tipe</th><th>Status</th><th style="text-align:center;">Aksi</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -78,51 +74,56 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
                         while($o = mysqli_fetch_assoc($res)): $notas[] = $o;
                         ?>
                         <tr>
-                            <td class="fw-bold text-primary">#<?php echo $o['id_pesanan']; ?></td>
-                            <td><strong><?php echo $o['nama_penerima']; ?></strong><br><small class="text-muted"><?php echo $o['no_telp']; ?></small></td>
-                            <td><small class="text-muted"><?php echo date('d/m/Y H:i', strtotime($o['tgl_pesan'])); ?></small></td>
-                            <td class="fw-bold text-danger">Rp <?php echo number_format($o['total_bayar']); ?></td>
+                            <td><code style="font-weight: 700; color: #1A1A2E; background: #F0F0FF; padding: 3px 8px; border-radius: 6px;">#<?php echo $o['id_pesanan']; ?></code></td>
+                            <td>
+                                <div style="font-weight: 700; color: #1A1A2E;"><?php echo htmlspecialchars($o['nama_penerima']); ?></div>
+                                <div style="font-size: 0.78rem; color: #9CA3AF;"><?php echo $o['no_telp']; ?></div>
+                            </td>
+                            <td style="color: #9CA3AF; font-size: 0.8rem;"><?php echo date('d/m/Y H:i', strtotime($o['tgl_pesan'])); ?></td>
+                            <td><span style="color: #C0392B; font-weight: 700;">Rp <?php echo number_format($o['total_bayar']); ?></span></td>
+                            <td>
+                                <?php if(isset($o['tipe_pesanan']) && $o['tipe_pesanan'] == 'offline'): ?>
+                                    <span class="status-badge" style="background: #1A1A2E; color: white;"><i class="bi bi-pc-display-horizontal"></i> Kasir</span>
+                                <?php else: ?>
+                                    <span class="status-badge" style="background: #EFF6FF; color: #3B82F6; border: 1px solid #BFDBFE;"><i class="bi bi-globe2"></i> Online</span>
+                                <?php endif; ?>
+                            </td>
                             <td>
                                 <?php 
-                                $badge_class = 'bg-secondary';
+                                $badge_class = 'badge-default';
                                 $status_text = strtoupper($o['status']);
-                                if($o['status'] == 'pending') {
-                                    $badge_class = 'bg-warning text-dark';
-                                } elseif($o['status'] == 'dikirim') {
-                                    $badge_class = 'bg-primary';
-                                } elseif($o['status'] == 'selesai') {
-                                    $badge_class = 'bg-success';
-                                    $status_text = 'SELESAI';
-                                } elseif($o['status'] == 'paid') {
-                                    $badge_class = 'bg-info text-dark';
-                                    $status_text = 'DIBAYAR';
-                                } elseif($o['status'] == 'batal') {
-                                    $badge_class = 'bg-danger';
-                                    $status_text = 'BATAL';
-                                }
+                                $status_icon = 'bi-circle';
+                                if($o['status'] == 'pending') { $badge_class = 'badge-pending'; $status_icon = 'bi-clock'; }
+                                elseif($o['status'] == 'dikirim') { $badge_class = 'badge-dikirim'; $status_icon = 'bi-truck'; }
+                                elseif($o['status'] == 'selesai') { $badge_class = 'badge-selesai'; $status_icon = 'bi-check-circle'; $status_text = 'SELESAI'; }
+                                elseif($o['status'] == 'paid') { $badge_class = 'badge-paid'; $status_icon = 'bi-wallet2'; $status_text = 'DIBAYAR'; }
+                                elseif($o['status'] == 'batal') { $badge_class = 'badge-batal'; $status_icon = 'bi-x-circle'; $status_text = 'BATAL'; }
                                 ?>
-                                <span class="badge rounded-pill <?php echo $badge_class; ?>"><?php echo $status_text; ?></span>
+                                <span class="status-badge <?php echo $badge_class; ?>">
+                                    <i class="bi <?php echo $status_icon; ?>"></i>
+                                    <?php echo $status_text; ?>
+                                </span>
                             </td>
-                            <td class="text-center">
-                                <div class="d-flex gap-2 justify-content-center flex-wrap">
-                                    <button class="btn btn-action btn-detail rounded-pill" data-bs-toggle="modal" data-bs-target="#nota<?php echo $o['id_pesanan']; ?>">
-                                        <i class="bi bi-eye me-1"></i> Detail
+                            <td style="text-align: center;">
+                                <div style="display: flex; gap: 5px; justify-content: center; flex-wrap: wrap;">
+                                    <button class="btn-action btn-detail" data-bs-toggle="modal" data-bs-target="#nota<?php echo $o['id_pesanan']; ?>">
+                                        <i class="bi bi-eye"></i> Detail
                                     </button>
                                     <?php if($o['status'] == 'pending' || $o['status'] == 'paid'): ?>
-                                         <a href="pesanan.php?kirim=<?php echo $o['id_pesanan']; ?>" class="btn btn-action btn-send rounded-pill">
-                                             <i class="bi bi-send me-1"></i> Kirim
-                                         </a>
-                                         <a href="#" class="btn btn-action btn-danger rounded-pill" onclick="return batalkanPesanan(<?php echo $o['id_pesanan']; ?>)">
-                                             <i class="bi bi-x-circle me-1"></i> Batalkan
-                                         </a>
-                                    <?php endif; ?>
-                                    <?php if($o['status'] == 'dikirim'): ?>
-                                        <a href="pesanan.php?selesai=<?php echo $o['id_pesanan']; ?>" class="btn btn-sm btn-success rounded-pill" onclick="return confirm('Tandai pesanan ini sebagai selesai?')">
-                                            <i class="bi bi-check-circle me-1"></i> Selesai
+                                        <a href="pesanan.php?kirim=<?php echo $o['id_pesanan']; ?>" class="btn-action btn-send">
+                                            <i class="bi bi-send"></i> Kirim
+                                        </a>
+                                        <a href="#" class="btn-action btn-cancel" onclick="return batalkanPesanan(<?php echo $o['id_pesanan']; ?>)">
+                                            <i class="bi bi-x-circle"></i> Batal
                                         </a>
                                     <?php endif; ?>
-                                    <a href="pesanan.php?hapus=<?php echo $o['id_pesanan']; ?>" class="btn btn-action btn-delete rounded-pill" onclick="return confirm('Yakin hapus pesanan ini?')">
-                                        <i class="bi bi-trash"></i>
+                                    <?php if($o['status'] == 'dikirim'): ?>
+                                        <a href="pesanan.php?selesai=<?php echo $o['id_pesanan']; ?>" class="btn-action btn-done" onclick="return confirm('Tandai pesanan sebagai selesai?')">
+                                            <i class="bi bi-check-circle"></i> Selesai
+                                        </a>
+                                    <?php endif; ?>
+                                    <a href="pesanan.php?hapus=<?php echo $o['id_pesanan']; ?>" class="btn-action btn-delete" onclick="return confirm('Hapus pesanan ini?')">
+                                        <i class="bi bi-trash3"></i>
                                     </a>
                                 </div>
                             </td>
@@ -131,6 +132,7 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
                     </tbody>
                 </table>
             </div>
+        </div>
         </div>
     </div>
 
@@ -149,9 +151,15 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
                     <thead><tr><th>Barang</th><th>Qty</th><th>Subtotal</th></tr></thead>
                     <tbody>
                         <?php 
-                        $det = mysqli_query($koneksi, "SELECT detail_pesanan.*, produk.nama_produk FROM detail_pesanan JOIN produk ON detail_pesanan.id_produk = produk.id WHERE id_pesanan='".$o['id_pesanan']."'");
+                        $det = mysqli_query($koneksi, "
+                            SELECT detail_pesanan.*, produk.nama_produk, pk.nama_satuan 
+                            FROM detail_pesanan 
+                            JOIN produk ON detail_pesanan.id_produk = produk.id 
+                            LEFT JOIN produk_kemasan pk ON detail_pesanan.id_kemasan = pk.id_kemasan 
+                            WHERE id_pesanan='".$o['id_pesanan']."'
+                        ");
                         while($d = mysqli_fetch_assoc($det)): ?>
-                        <tr><td><?php echo $d['nama_produk']; ?></td><td><?php echo $d['jumlah']; ?></td><td>Rp <?php echo number_format($d['subtotal']); ?></td></tr>
+                        <tr><td><?php echo $d['nama_produk'] . ($d['nama_satuan'] ? ' (' . $d['nama_satuan'] . ')' : ''); ?></td><td><?php echo $d['jumlah']; ?></td><td>Rp <?php echo number_format($d['subtotal']); ?></td></tr>
                         <?php endwhile; ?>
                     </tbody>
                 </table>

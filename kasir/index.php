@@ -21,7 +21,6 @@ if (isset($_POST['proses_transaksi'])) {
     $uang_kembali = (int)$_POST['uang_kembali'];
     $tgl = date("Y-m-d H:i:s");
 
-    // Insert into pesanan table with id_cabang
     $query = "INSERT INTO pesanan (nama_penerima, no_telp, alamat_penerima, total_bayar, metode_bayar, status, tgl_pesan, tipe_pesanan, id_cabang) 
               VALUES ('$nama', '$hp', 'Pembelian Toko Offline', '$total', '$metode', 'selesai', '$tgl', 'offline', '$id_cabang')";
     $exec = mysqli_query($koneksi, $query);
@@ -31,27 +30,24 @@ if (isset($_POST['proses_transaksi'])) {
         $items = json_decode($_POST['items_json'], true);
 
         foreach ($items as $item) {
-            $id_produk = (int)$item['id'];
+            $id_produk = (int)$item['id_produk'];
+            $id_kemasan = (int)$item['id_kemasan'];
             $qty = (int)$item['qty'];
+            $faktor_kali = (int)$item['faktor_kali'];
+            $total_pcs = $qty * $faktor_kali;
             $sub = (int)$item['subtotal'];
 
-            // Insert details
-            mysqli_query($koneksi, "INSERT INTO detail_pesanan (id_pesanan, id_produk, jumlah, subtotal) VALUES ('$id_pesanan', '$id_produk', '$qty', '$sub')");
-
-            // Deduct stock for the specific branch
+            mysqli_query($koneksi, "INSERT INTO detail_pesanan (id_pesanan, id_produk, jumlah, subtotal, id_kemasan) VALUES ('$id_pesanan', '$id_produk', '$qty', '$sub', '$id_kemasan')");
             mysqli_query($koneksi, "
                 INSERT INTO stok_cabang (id_produk, id_cabang, stok) 
                 VALUES ('$id_produk', '$id_cabang', 0)
-                ON DUPLICATE KEY UPDATE stok = stok - $qty
+                ON DUPLICATE KEY UPDATE stok = stok - $total_pcs
             ");
-            
-            // If main branch (ID 1), also deduct from the main produk table to keep online stock in sync
             if ($id_cabang == 1) {
-                mysqli_query($koneksi, "UPDATE produk SET stok = stok - $qty WHERE id = '$id_produk'");
+                mysqli_query($koneksi, "UPDATE produk SET stok = stok - $total_pcs WHERE id = '$id_produk'");
             }
         }
 
-        // Redirect to trigger print dialog
         echo "<script>window.location='index.php?sukses=1&id_pesanan=$id_pesanan&bayar=$uang_bayar&kembali=$uang_kembali';</script>";
         exit;
     }
@@ -64,19 +60,23 @@ while ($c = mysqli_fetch_assoc($res_cats)) {
     $cats[] = $c;
 }
 
-// Fetch products for JS inventory (with branch-specific stock levels)
+// Fetch products & variants for JS inventory (with branch-specific stock levels)
 $prods = [];
 $res_prods = mysqli_query($koneksi, "
-    SELECT p.*, COALESCE(sc.stok, 0) AS stok 
-    FROM produk p 
+    SELECT 
+        pk.id_kemasan, pk.id_produk, pk.nama_satuan, pk.faktor_kali, pk.harga, pk.barcode AS barcode_var,
+        p.nama_produk, p.foto, p.harga_grosir, p.min_qty_grosir, p.barcode AS barcode_parent,
+        COALESCE(sc.stok, 0) AS stok_master
+    FROM produk_kemasan pk
+    JOIN produk p ON pk.id_produk = p.id
     LEFT JOIN stok_cabang sc ON p.id = sc.id_produk AND sc.id_cabang = '$id_cabang'
-    ORDER BY p.nama_produk ASC
+    ORDER BY p.nama_produk ASC, pk.faktor_kali ASC
 ");
 while ($p = mysqli_fetch_assoc($res_prods)) {
     $prods[] = $p;
 }
 
-// Fetch print details if redirected after success (join with cabang table for receipt details)
+// Fetch print details if redirected after success
 $print_pesanan = null;
 $print_items = [];
 if (isset($_GET['sukses']) && isset($_GET['id_pesanan'])) {
@@ -90,7 +90,13 @@ if (isset($_GET['sukses']) && isset($_GET['id_pesanan'])) {
     $print_pesanan = mysqli_fetch_assoc($q_pesanan);
 
     if ($print_pesanan) {
-        $q_items = mysqli_query($koneksi, "SELECT detail_pesanan.*, produk.nama_produk FROM detail_pesanan JOIN produk ON detail_pesanan.id_produk = produk.id WHERE id_pesanan = '$print_id'");
+        $q_items = mysqli_query($koneksi, "
+            SELECT detail_pesanan.*, produk.nama_produk, pk.nama_satuan 
+            FROM detail_pesanan 
+            JOIN produk ON detail_pesanan.id_produk = produk.id 
+            LEFT JOIN produk_kemasan pk ON detail_pesanan.id_kemasan = pk.id_kemasan 
+            WHERE id_pesanan = '$print_id'
+        ");
         while ($item = mysqli_fetch_assoc($q_items)) {
             $print_items[] = $item;
         }
@@ -100,752 +106,900 @@ if (isset($_GET['sukses']) && isset($_GET['id_pesanan'])) {
 <!DOCTYPE html>
 <html lang="id">
 <head>
+    <link rel="icon" href="../assets/favicon.png" type="image/png">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistem Kasir POS - MerahPutih</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <title>Kasir POS – MerahPutih</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
         :root {
-            --grad-merah: linear-gradient(135deg, #8b0000 0%, #e63946 100%);
-            --merah-tua: #8b0000;
-            --merah-terang: #e63946;
+            --primary: #C0392B;
+            --primary-dark: #922B21;
+            --navy: #1A1A2E;
+            --navy-light: #16213E;
+            --accent: #FF6B35;
+            --bg: #0D1117;
+            --surface: #161B22;
+            --surface-2: #21262D;
+            --border: rgba(255,255,255,0.07);
+            --text: #E6EDF3;
+            --text-sub: #7D8590;
+            --green: #3FB950;
+            --yellow: #D29922;
         }
-        body { font-family: 'Poppins', sans-serif; background-color: #f1f3f5; overflow-x: hidden; }
 
-        /* Top Header POS */
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ── HEADER ── */
         .pos-header {
-            background: var(--grad-merah);
-            color: white;
-            padding: 12px 30px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 0 20px;
+            height: 56px;
+            display: flex; align-items: center; justify-content: space-between;
+            flex-shrink: 0;
+        }
+        .pos-brand {
+            display: flex; align-items: center; gap: 12px;
+        }
+        .pos-brand .brand-text { font-size: 1.1rem; font-weight: 800; color: var(--text); }
+        .pos-brand .brand-text span { color: var(--accent); }
+        .pos-brand .branch-pill {
+            display: flex; align-items: center; gap: 5px;
+            background: rgba(192,57,43,0.2);
+            border: 1px solid rgba(192,57,43,0.35);
+            color: #FF9999; font-size: 0.72rem; font-weight: 600;
+            padding: 3px 10px; border-radius: 20px;
+        }
+        .pos-clock {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.88rem; color: var(--text-sub);
+            background: var(--surface-2);
+            border: 1px solid var(--border);
+            padding: 4px 12px; border-radius: 8px;
+        }
+        .pos-nav-btn {
+            display: flex; align-items: center; gap: 6px;
+            padding: 6px 14px; border-radius: 8px;
+            font-size: 0.78rem; font-weight: 600;
+            text-decoration: none; transition: all 0.2s;
+            color: var(--text-sub); border: 1px solid var(--border);
+            background: transparent;
+        }
+        .pos-nav-btn:hover { background: var(--surface-2); color: var(--text); }
+        .pos-nav-btn.danger { border-color: rgba(192,57,43,0.4); color: #FF9999; }
+        .pos-nav-btn.danger:hover { background: rgba(192,57,43,0.15); color: #FF6B6B; }
+
+        /* ── MAIN LAYOUT ── */
+        .pos-body {
+            flex: 1; display: grid;
+            grid-template-columns: 1fr 380px;
+            overflow: hidden;
+            gap: 0;
         }
 
-        .card-premium { border: none; border-radius: 15px; box-shadow: 0 5px 20px rgba(0,0,0,0.03); }
-        
-        /* Digital Neon LED Display */
-        .neon-display {
-            background-color: #1a1a1a;
-            border: 3px solid #333;
-            border-radius: 12px;
-            padding: 15px 25px;
-            color: #39FF14;
-            font-family: 'Share Tech Mono', monospace;
-            text-align: right;
-            text-shadow: 0 0 10px rgba(57,255,20,0.4);
-            box-shadow: inset 0 0 10px rgba(0,0,0,0.8);
+        /* ── LEFT PANEL ── */
+        .pos-left {
+            display: flex; flex-direction: column;
+            padding: 16px; gap: 12px;
+            overflow: hidden;
         }
 
-        /* POS Table styling */
-        .pos-table th {
-            background-color: #343a40;
-            color: white;
+        /* Scanner */
+        .scanner-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 14px 18px;
+            display: flex; align-items: center; gap: 16px;
+            flex-shrink: 0;
+            transition: border-color 0.3s;
+        }
+        .scanner-card.flash { border-color: var(--green); box-shadow: 0 0 0 3px rgba(63,185,80,0.15); }
+        .scanner-display {
+            flex: 1;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 10px 16px;
+        }
+        .scanner-display-label {
+            font-size: 0.62rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 1.5px; color: var(--text-sub); margin-bottom: 4px;
+        }
+        .scanner-total {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.5rem; font-weight: 600;
+            color: var(--green);
+        }
+        .scanner-input-wrap {
+            display: flex; flex-direction: column; gap: 6px;
+        }
+        .scanner-input-label { font-size: 0.72rem; color: var(--text-sub); }
+        .scanner-input {
+            background: var(--surface-2); border: 1px solid var(--border);
+            border-radius: 8px; padding: 10px 14px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.88rem; color: var(--text);
+            width: 240px; outline: none;
+            transition: border-color 0.2s;
+        }
+        .scanner-input:focus { border-color: var(--primary); }
+        .scanner-input::placeholder { color: var(--text-sub); }
+
+        /* Cart Table */
+        .cart-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            flex: 1; overflow: hidden;
+            display: flex; flex-direction: column;
+        }
+        .cart-card-header {
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; gap: 8px;
+            font-size: 0.85rem; font-weight: 700; flex-shrink: 0;
+        }
+        .cart-card-header i { color: var(--primary); }
+        .cart-table-wrap {
+            flex: 1; overflow-y: auto;
+        }
+        .cart-table-wrap::-webkit-scrollbar { width: 5px; }
+        .cart-table-wrap::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 3px; }
+
+        table.pos-tbl { width: 100%; border-collapse: collapse; }
+        table.pos-tbl thead th {
+            background: var(--surface-2);
+            padding: 10px 14px;
+            font-size: 0.7rem; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 1px;
+            color: var(--text-sub);
+            text-align: left; position: sticky; top: 0;
+        }
+        table.pos-tbl thead th:last-child { text-align: center; width: 50px; }
+        table.pos-tbl tbody td {
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--border);
             font-size: 0.85rem;
-            padding: 10px;
-            font-weight: 600;
-            text-transform: uppercase;
         }
-        .pos-table td {
-            font-size: 0.88rem;
-            padding: 10px;
-            border-bottom: 1px solid #dee2e6;
-        }
-        .pos-table tr:hover {
-            background-color: #f8f9fa;
-        }
-        
+        table.pos-tbl tbody tr:hover { background: rgba(255,255,255,0.02); }
+        table.pos-tbl tbody tr:last-child td { border-bottom: none; }
+
         .qty-input {
-            width: 55px;
-            text-align: center;
-            border: 1px solid #ced4da;
-            border-radius: 4px;
-            font-weight: bold;
+            background: var(--surface-2); border: 1px solid var(--border);
+            border-radius: 6px; color: var(--text);
+            width: 52px; text-align: center; padding: 5px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem; outline: none;
+        }
+        .qty-input:focus { border-color: var(--primary); }
+
+        .btn-remove {
+            background: none; border: none; cursor: pointer;
+            color: var(--text-sub); font-size: 0.9rem;
+            padding: 4px 8px; border-radius: 6px;
+            transition: all 0.2s;
+        }
+        .btn-remove:hover { color: #FF6B6B; background: rgba(239,68,68,0.1); }
+
+        .empty-cart {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            padding: 60px 20px; color: var(--text-sub);
+        }
+        .empty-cart i { font-size: 3rem; margin-bottom: 12px; opacity: 0.3; }
+        .empty-cart p { font-size: 0.85rem; text-align: center; line-height: 1.6; }
+
+        /* ── RIGHT PANEL ── */
+        .pos-right {
+            background: var(--surface);
+            border-left: 1px solid var(--border);
+            display: flex; flex-direction: column;
+            padding: 16px; gap: 14px;
+            overflow-y: auto;
+        }
+        .pos-right::-webkit-scrollbar { width: 5px; }
+        .pos-right::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 3px; }
+
+        /* Summary Panel */
+        .summary-card {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 16px;
+        }
+        .summary-row {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 8px 0; font-size: 0.85rem;
+        }
+        .summary-row.total {
+            border-top: 1px solid var(--border);
+            margin-top: 6px; padding-top: 14px;
+        }
+        .summary-row.total .label { font-size: 0.88rem; font-weight: 700; }
+        .summary-row.total .value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.4rem; font-weight: 700; color: var(--green);
+        }
+        .summary-row .label { color: var(--text-sub); }
+        .summary-row .value { font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+
+        .btn-pay {
+            width: 100%; padding: 16px;
+            background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+            color: white; border: none; border-radius: 14px;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 0.95rem; font-weight: 800;
+            cursor: pointer; transition: all 0.25s;
+            display: flex; align-items: center; justify-content: center; gap: 10px;
+            letter-spacing: 0.5px;
+        }
+        .btn-pay:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(192,57,43,0.4); }
+        .btn-pay:disabled { opacity: 0.35; cursor: not-allowed; }
+
+        /* Search Panel */
+        .search-panel {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            flex: 1; display: flex; flex-direction: column;
+            overflow: hidden; min-height: 0;
+        }
+        .search-panel-header { padding: 12px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+        .search-panel-header label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--text-sub); }
+        .search-inner { padding: 10px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+        .pos-search-input {
+            width: 100%; background: var(--surface-2);
+            border: 1px solid var(--border); border-radius: 8px;
+            padding: 9px 14px; color: var(--text);
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 0.85rem; outline: none;
+            transition: border-color 0.2s;
+        }
+        .pos-search-input:focus { border-color: var(--primary); }
+        .pos-search-input::placeholder { color: var(--text-sub); }
+        .lookup-wrap { flex: 1; overflow-y: auto; }
+        .lookup-wrap::-webkit-scrollbar { width: 4px; }
+        .lookup-wrap::-webkit-scrollbar-thumb { background: var(--surface-2); }
+
+        table.lookup-tbl { width: 100%; border-collapse: collapse; }
+        table.lookup-tbl td { padding: 9px 14px; font-size: 0.8rem; border-bottom: 1px solid var(--border); }
+        table.lookup-tbl tr:hover { background: rgba(255,255,255,0.03); }
+        .btn-add-item {
+            background: rgba(192,57,43,0.15); border: 1px solid rgba(192,57,43,0.3);
+            color: #FF9999; border-radius: 6px; padding: 3px 10px;
+            font-size: 0.75rem; font-weight: 700; cursor: pointer; transition: all 0.2s;
+        }
+        .btn-add-item:hover { background: var(--primary); color: white; border-color: var(--primary); }
+        .btn-add-item:disabled { opacity: 0.3; cursor: not-allowed; }
+
+        .shortcut-row {
+            display: flex; gap: 6px; padding: 12px 14px;
+            flex-wrap: wrap; flex-shrink: 0;
+        }
+        .kbd {
+            background: var(--surface-2); border: 1px solid var(--border);
+            color: var(--text-sub); font-family: 'JetBrains Mono', monospace;
+            font-size: 0.68rem; padding: 3px 8px; border-radius: 5px;
         }
 
-        /* Compact Lookup styling */
-        .lookup-table td {
-            font-size: 0.82rem;
-            padding: 6px 8px;
+        /* ── MODAL ── */
+        .modal-overlay {
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
+            z-index: 1000; display: none;
+            align-items: center; justify-content: center;
         }
+        .modal-overlay.open { display: flex; }
+        .modal-box {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 20px; padding: 28px;
+            width: 100%; max-width: 440px;
+            box-shadow: 0 30px 80px rgba(0,0,0,0.5);
+        }
+        .modal-box h3 { font-size: 1.1rem; font-weight: 800; margin-bottom: 20px; }
+        .modal-group { margin-bottom: 16px; }
+        .modal-label { font-size: 0.78rem; color: var(--text-sub); margin-bottom: 6px; display: block; }
+        .modal-input {
+            width: 100%; background: var(--surface-2);
+            border: 1px solid var(--border); border-radius: 10px;
+            padding: 11px 16px; color: var(--text);
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 0.9rem; outline: none; transition: border-color 0.2s;
+        }
+        .modal-input:focus { border-color: var(--primary); }
 
-        .shortcut-badge {
-            font-family: 'Share Tech Mono', monospace;
-            background: #e9ecef;
-            color: #495057;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            border: 1px solid #ced4da;
-            margin-right: 5px;
-            display: inline-block;
+        .pay-methods { display: flex; gap: 8px; }
+        .pay-method-btn {
+            flex: 1; padding: 10px 8px;
+            background: var(--surface-2); border: 2px solid var(--border);
+            border-radius: 10px; color: var(--text-sub);
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 0.78rem; font-weight: 600;
+            cursor: pointer; text-align: center; transition: all 0.2s;
         }
+        .pay-method-btn.selected { border-color: var(--primary); color: white; background: rgba(192,57,43,0.2); }
 
-        /* Success scanner card flash */
-        @keyframes flashSuccess {
-            0% { background-color: rgba(25, 135, 84, 0.25); }
-            100% { background-color: rgba(220, 53, 69, 0.05); }
+        .modal-summary {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 12px; padding: 16px;
+            margin-bottom: 16px;
         }
-        .scanner-flash {
-            animation: flashSuccess 0.4s ease-out;
-        }
+        .modal-summary-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 0.85rem; }
+        .modal-summary-row.total { padding-top: 12px; border-top: 1px solid var(--border); }
+        .modal-summary-row.total .val { font-family: 'JetBrains Mono', monospace; font-size: 1.3rem; font-weight: 700; color: var(--green); }
+        .modal-kembalian { font-family: 'JetBrains Mono', monospace; font-size: 1.3rem; font-weight: 700; }
 
-        /* Printing elements */
+        /* ── PRINT AREA ── */
         .print-area { display: none; }
-
         @media print {
             body * { visibility: hidden; }
             .print-area, .print-area * { visibility: visible; }
-            .print-area {
-                display: block !important;
-                position: absolute;
-                left: 0;
-                top: 0;
-                width: 100%;
-            }
-            .pos-header, .container-fluid { display: none !important; }
+            .print-area { display: block !important; position: absolute; left: 0; top: 0; width: 100%; }
+        }
+
+        /* ── BADGES ── */
+        .badge-mono {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.65rem; padding: 2px 6px;
+            border-radius: 4px; background: var(--surface-2);
+            color: var(--text-sub); border: 1px solid var(--border);
         }
     </style>
 </head>
 <body>
 
-    <!-- Top Header POS -->
-    <header class="pos-header d-flex justify-content-between align-items-center">
-        <div class="d-flex align-items-center">
-            <h5 class="fw-800 m-0 text-white"><i class="bi bi-calculator-fill me-2"></i>MERAH<span class="fw-light text-warning">PUTIH KASIR</span></h5>
-            <span class="badge bg-warning text-dark ms-2 rounded-pill fw-semibold" style="font-size: 0.8rem;"><i class="bi bi-geo-alt-fill me-1"></i><?php echo htmlspecialchars($nama_cabang); ?></span>
-            <span class="badge bg-white text-dark ms-3 rounded-pill font-monospace" id="posClock">00:00:00</span>
+    <!-- HEADER -->
+    <header class="pos-header">
+        <div class="pos-brand">
+            <div class="brand-text">MERAH<span>PUTIH</span></div>
+            <div class="branch-pill">
+                <i class="bi bi-geo-alt-fill"></i>
+                <?php echo htmlspecialchars($nama_cabang); ?>
+            </div>
+            <div class="pos-clock" id="posClock">00:00:00</div>
         </div>
-        <div class="d-flex gap-2">
-            <span class="text-white opacity-75 small align-self-center me-3">
-                <span class="shortcut-badge">F4</span>Scan Barcode | 
-                <span class="shortcut-badge">F2</span>Cari Barang | 
-                <span class="shortcut-badge">F8 / End / Enter</span>Bayar
+        <div style="display: flex; gap: 8px; align-items: center;">
+            <span style="color: var(--text-sub); font-size: 0.75rem; margin-right: 4px;">
+                <span class="badge-mono">F4</span> Scan &nbsp;
+                <span class="badge-mono">F2</span> Cari &nbsp;
+                <span class="badge-mono">F8</span> Bayar
             </span>
-            <a href="../admin/index.php" class="btn btn-sm btn-outline-light rounded-pill px-3"><i class="bi bi-speedometer2 me-1"></i> Dashboard</a>
-            <a href="../admin/produk.php" class="btn btn-sm btn-outline-light rounded-pill px-3"><i class="bi bi-box-seam me-1"></i> Produk</a>
-            <a href="../admin/logout.php" class="btn btn-sm btn-danger rounded-pill px-3"><i class="bi bi-box-arrow-right me-1"></i> Keluar</a>
+            <a href="../admin/index.php" class="pos-nav-btn">
+                <i class="bi bi-speedometer2"></i> Dashboard
+            </a>
+            <a href="../admin/produk.php" class="pos-nav-btn">
+                <i class="bi bi-box-seam"></i> Produk
+            </a>
+            <a href="../admin/logout.php" class="pos-nav-btn danger">
+                <i class="bi bi-box-arrow-right"></i> Keluar
+            </a>
         </div>
     </header>
 
-    <div class="container-fluid my-3 px-4">
-        <div class="row g-3">
-            
-            <!-- Left Side: Barcode Scanner & Active Bills Table -->
-            <div class="col-lg-8 col-md-12">
-                
-                <!-- Neon Pole Display & Barcode Scan Card -->
-                <div class="card card-premium bg-white p-3 mb-3">
-                    <div class="row align-items-center g-3">
-                        <div class="col-md-6">
-                            <div class="neon-display">
-                                <div style="font-size: 0.75rem; letter-spacing: 2px; text-transform: uppercase; color: #888; font-family: 'Poppins', sans-serif;" class="text-start mb-1">Total Belanja</div>
-                                <div class="h2 m-0" id="lblNeonTotal">Rp 0</div>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="bg-danger bg-opacity-5 border border-danger border-opacity-10 rounded-3 p-3" id="scannerCard">
-                                <label class="form-label fw-bold small text-danger m-0 mb-1"><span class="shortcut-badge">F4</span>Scan Barcode / Kode Produk (Enter)</label>
-                                <div class="input-group">
-                                    <span class="input-group-text bg-white border-end-0 text-danger"><i class="bi bi-qr-code-scan"></i></span>
-                                    <input type="text" id="posBarcodeScanner" class="form-control border-start-0 font-monospace py-2" placeholder="Scan barcode barang di sini..." autofocus onkeypress="handleBarcodeScan(event)">
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+    <!-- BODY -->
+    <div class="pos-body">
 
-                <!-- Main Transaction Item Table -->
-                <div class="card card-premium bg-white p-3" style="min-height: 58vh;">
-                    <h6 class="fw-bold mb-3 text-dark"><i class="bi bi-receipt-cutoff text-danger me-2"></i>Daftar Belanja Aktif</h6>
-                    
-                    <div class="table-responsive" style="max-height: 50vh; overflow-y: auto;">
-                        <table class="table pos-table align-middle text-nowrap">
-                            <thead>
-                                <tr>
-                                    <th style="width: 5%">No</th>
-                                    <th>Barcode</th>
-                                    <th>Nama Barang</th>
-                                    <th class="text-end" style="width: 15%">Harga</th>
-                                    <th class="text-center" style="width: 12%">Jumlah</th>
-                                    <th class="text-end" style="width: 15%">Subtotal</th>
-                                    <th class="text-center" style="width: 5%">Hapus</th>
-                                </tr>
-                            </thead>
-                            <tbody id="cartTableBody">
-                                <!-- JS items row inside here -->
-                                <tr>
-                                    <td colspan="7" class="text-center text-muted py-5" id="tableEmptyPlaceholder">
-                                        <i class="bi bi-upc-scan fs-1 opacity-25"></i>
-                                        <p class="mt-2 small">Scan barcode barang atau gunakan pencarian untuk memulai transaksi.</p>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
+        <!-- LEFT: Cart + Scanner -->
+        <div class="pos-left">
+
+            <!-- Scanner -->
+            <div class="scanner-card" id="scannerCard">
+                <div class="scanner-display">
+                    <div class="scanner-display-label">Total Belanja</div>
+                    <div class="scanner-total" id="lblNeonTotal">Rp 0</div>
+                </div>
+                <div class="scanner-input-wrap">
+                    <div class="scanner-input-label">
+                        <span class="badge-mono">F4</span> Scan Barcode / Kode Produk
                     </div>
+                    <input type="text" id="posBarcodeScanner" class="scanner-input"
+                        placeholder="Scan atau ketik kode..." autofocus
+                        onkeypress="handleBarcodeScan(event)">
                 </div>
             </div>
 
-            <!-- Right Side: Payment summary & Compact Product Lookup -->
-            <div class="col-lg-4 col-md-12">
-                
-                <!-- Bill Summary -->
-                <div class="card card-premium bg-white p-3 mb-3">
-                    <h6 class="fw-bold mb-3 border-bottom pb-2"><i class="bi bi-credit-card-2-back-fill text-danger me-2"></i>Ringkasan & Pembayaran</h6>
-                    
-                    <div class="bg-light p-3 rounded-3 mb-3">
-                        <div class="d-flex justify-content-between mb-1">
-                            <span class="text-muted small">Subtotal:</span>
-                            <span class="fw-semibold small font-monospace" id="lblSubtotal">Rp 0</span>
-                        </div>
-                        <div class="d-flex justify-content-between mb-3 border-top pt-2">
-                            <span class="fw-bold">Total Akhir:</span>
-                            <span class="h4 fw-800 text-danger mb-0 font-monospace" id="lblTotal">Rp 0</span>
-                        </div>
-                        
-                        <button class="btn btn-danger w-100 py-3 rounded-pill fw-bold shadow-sm" id="btnCheckout" onclick="showCheckoutModal()" disabled>
-                            BAYAR & SELESAI <span class="shortcut-badge ms-2">F8</span>
-                        </button>
-                    </div>
+            <!-- Cart Table -->
+            <div class="cart-card">
+                <div class="cart-card-header">
+                    <i class="bi bi-receipt-cutoff"></i>
+                    Daftar Item Transaksi
                 </div>
-
-                <!-- Text-based Product Lookup (Compact Minimarket Style) -->
-                <div class="card card-premium bg-white p-3">
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <h6 class="fw-bold m-0 text-dark"><i class="bi bi-search text-danger me-2"></i><span class="shortcut-badge">F2</span>Cari Barang Manual</h6>
-                    </div>
-                    
-                    <input type="text" id="posSearch" class="form-control form-control-sm mb-2" placeholder="Ketik nama / barcode..." onkeyup="filterProducts()">
-                    
-                    <div class="table-responsive" style="max-height: 28vh; overflow-y: auto;">
-                        <table class="table table-sm lookup-table table-hover align-middle">
-                            <thead class="table-light">
-                                <tr>
-                                    <th>Barcode</th>
-                                    <th>Nama Barang</th>
-                                    <th class="text-end">Harga</th>
-                                    <th class="text-center">Stok</th>
-                                    <th class="text-center">Pilih</th>
-                                </tr>
-                            </thead>
-                            <tbody id="lookupTableBody">
-                                <!-- JS compact product rows -->
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-        </div>
-    </div>
-
-    <!-- Checkout Modal -->
-    <div class="modal fade" id="checkoutModal" tabindex="-1" aria-labelledby="checkoutModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content border-0 rounded-4 shadow">
-                <form method="POST" id="posCheckoutForm">
-                    <div class="modal-header border-0 bg-light rounded-top-4 py-3">
-                        <h5 class="modal-title fw-bold text-danger" id="checkoutModalLabel"><i class="bi bi-cash-coin me-2"></i>Pembayaran Transaksi</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                    </div>
-                    
-                    <div class="modal-body p-4">
-                        <!-- Customer Name -->
-                        <div class="mb-3">
-                            <label class="form-label fw-bold small text-muted">Nama Pelanggan (Opsional)</label>
-                            <input type="text" name="nama_penerima" class="form-control py-2 rounded-3" placeholder="Contoh: Pelanggan Umum" value="Pelanggan Umum">
-                        </div>
-
-                        <!-- Customer Phone -->
-                        <div class="mb-3">
-                            <label class="form-label fw-bold small text-muted">Nomor WhatsApp (Opsional)</label>
-                            <input type="number" name="no_telp" class="form-control py-2 rounded-3" placeholder="08xxxx">
-                        </div>
-
-                        <!-- Payment Method -->
-                        <div class="mb-4">
-                            <label class="form-label fw-bold small text-muted d-block">Metode Pembayaran</label>
-                            <div class="d-flex gap-2">
-                                <input type="radio" class="btn-check" name="metode_bayar" id="pay-tunai" value="tunai" checked onchange="toggleCashInput(true)">
-                                <label class="btn btn-outline-danger flex-fill py-2 rounded-3" for="pay-tunai"><i class="bi bi-cash me-1"></i> Tunai</label>
-
-                                <input type="radio" class="btn-check" name="metode_bayar" id="pay-qris" value="qris_offline" onchange="toggleCashInput(false)">
-                                <label class="btn btn-outline-danger flex-fill py-2 rounded-3" for="pay-qris"><i class="bi bi-qr-code me-1"></i> QRIS</label>
-
-                                <input type="radio" class="btn-check" name="metode_bayar" id="pay-debit" value="debit" onchange="toggleCashInput(false)">
-                                <label class="btn btn-outline-danger flex-fill py-2 rounded-3" for="pay-debit"><i class="bi bi-credit-card-2-back me-1"></i> Debit</label>
-                            </div>
-                        </div>
-
-                        <!-- Payment Summary Box -->
-                        <div class="bg-light p-3 rounded-4 mb-3">
-                            <div class="d-flex justify-content-between mb-2">
-                                <span>Tagihan Belanja:</span>
-                                <span class="fw-bold text-danger text-end font-monospace" id="modalTotalTagihan">Rp 0</span>
-                            </div>
-                            
-                            <!-- Cash calculator input -->
-                            <div id="cashCalculatorSection">
-                                <div class="mb-2">
-                                    <label class="form-label fw-bold small text-muted m-0">Uang Diterima:</label>
-                                    <div class="input-group mt-1">
-                                        <span class="input-group-text bg-white border-end-0">Rp</span>
-                                        <input type="number" name="uang_bayar" id="txtBayar" class="form-control border-start-0 fw-bold font-monospace fs-5" placeholder="0" onkeyup="calculateChange()" required>
+                <div class="cart-table-wrap">
+                    <table class="pos-tbl">
+                        <thead>
+                            <tr>
+                                <th style="width: 32px;">#</th>
+                                <th>Barang</th>
+                                <th style="width: 90px;">Harga</th>
+                                <th style="width: 60px; text-align: center;">Qty</th>
+                                <th style="width: 100px; text-align: right;">Subtotal</th>
+                                <th style="width: 40px;">✕</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cartTableBody">
+                            <tr id="emptyCartRow">
+                                <td colspan="6">
+                                    <div class="empty-cart">
+                                        <i class="bi bi-upc-scan"></i>
+                                        <p>Scan barcode barang atau gunakan<br>pencarian untuk memulai transaksi.</p>
                                     </div>
-                                </div>
-                                <div class="d-flex justify-content-between mt-3 border-top pt-2">
-                                    <span>Kembalian Uang:</span>
-                                    <span class="fw-extrabold text-success h4 mb-0 font-monospace" id="lblKembalian">Rp 0</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Hidden Payload Fields -->
-                    <input type="hidden" name="total_bayar" id="hiddenTotal">
-                    <input type="hidden" name="uang_kembali" id="hiddenKembali" value="0">
-                    <input type="hidden" name="items_json" id="hiddenItemsJson">
-                    <input type="hidden" name="proses_transaksi" value="1">
-
-                    <div class="modal-footer border-0 p-4 pt-0">
-                        <button type="submit" class="btn btn-danger w-100 py-3 rounded-pill fw-bold shadow-sm" id="btnSubmitCheckout">
-                            SELESAIKAN & CETAK STRUK <i class="bi bi-printer ms-1"></i>
-                        </button>
-                    </div>
-                </form>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
+
+        </div>
+
+        <!-- RIGHT: Payment + Search -->
+        <div class="pos-right">
+
+            <!-- Bill Summary -->
+            <div class="summary-card">
+                <div class="summary-row">
+                    <span class="label">Subtotal</span>
+                    <span class="value" id="lblSubtotal">Rp 0</span>
+                </div>
+                <div class="summary-row total">
+                    <span class="label">TOTAL BAYAR</span>
+                    <span class="value" id="lblTotal">Rp 0</span>
+                </div>
+            </div>
+
+            <button class="btn-pay" id="btnCheckout" onclick="showCheckoutModal()" disabled>
+                <i class="bi bi-cash-coin" style="font-size: 1.1rem;"></i>
+                BAYAR &amp; SELESAI
+                <span class="badge-mono" style="font-size: 0.65rem;">F8</span>
+            </button>
+
+            <!-- Product Search -->
+            <div class="search-panel">
+                <div class="search-panel-header">
+                    <label><span class="badge-mono">F2</span> &nbsp;Cari Barang Manual</label>
+                </div>
+                <div class="search-inner">
+                    <input type="text" id="posSearch" class="pos-search-input"
+                        placeholder="Ketik nama / barcode..."
+                        onkeyup="filterProducts()">
+                </div>
+                <div class="lookup-wrap">
+                    <table class="lookup-tbl">
+                        <tbody id="lookupTableBody"></tbody>
+                    </table>
+                </div>
+                <div class="shortcut-row" style="border-top: 1px solid var(--border);">
+                    <span style="font-size: 0.72rem; color: var(--text-sub);">Shortcut:</span>
+                    <span class="kbd">F4</span><span style="font-size: 0.72rem; color: var(--text-sub);">Scan</span>
+                    <span class="kbd">F2</span><span style="font-size: 0.72rem; color: var(--text-sub);">Cari</span>
+                    <span class="kbd">F8</span><span style="font-size: 0.72rem; color: var(--text-sub);">Bayar</span>
+                </div>
+            </div>
+
         </div>
     </div>
 
-    <!-- Print Receipt Area (Thermal printer emulation) -->
-    <?php if ($print_pesanan): ?>
-        <div class="print-area" id="printArea">
-            <div style="text-align: center; font-family: 'Courier New', Courier, monospace; width: 300px; margin: 0 auto; padding: 10px; color: #000; font-size: 12px; line-height: 1.3;">
-                <h3 style="margin: 0; font-weight: bold; font-size: 15px; text-transform: uppercase;">MERAH PUTIH STORE</h3>
-                <p style="margin: 3px 0 10px 0; font-size: 9px; color: #333;">
-                    <?php echo htmlspecialchars($print_pesanan['nama_cabang']); ?><br>
-                    <?php echo htmlspecialchars($print_pesanan['alamat_cabang'] ?: 'Premium Offline Boutique'); ?><br>
-                    Telp: <?php echo htmlspecialchars($print_pesanan['telp_cabang'] ?: '-'); ?>
-                </p>
-                <div style="text-align: left; font-size: 10px; margin-bottom: 5px;">
-                    No. Nota: #<?php echo $print_pesanan['id_pesanan']; ?><br>
-                    Tgl/Jam : <?php echo date('d/m/Y H:i', strtotime($print_pesanan['tgl_pesan'])); ?><br>
-                    Customer: <?php echo htmlspecialchars($print_pesanan['nama_penerima']); ?><br>
-                    Metode  : <?php echo strtoupper($print_pesanan['metode_bayar']); ?>
+    <!-- CHECKOUT MODAL -->
+    <div class="modal-overlay" id="checkoutOverlay">
+        <div class="modal-box">
+            <form method="POST" id="posCheckoutForm">
+                <h3><i class="bi bi-cash-coin" style="color: var(--primary); margin-right: 8px;"></i>Pembayaran Transaksi</h3>
+
+                <div class="modal-group">
+                    <label class="modal-label">Nama Pelanggan (Opsional)</label>
+                    <input type="text" name="nama_penerima" class="modal-input" placeholder="Pelanggan Umum" value="Pelanggan Umum">
                 </div>
-                <p style="margin: 5px 0; font-size: 10px;">================================</p>
-                
-                <table style="width: 100%; font-size: 10px; font-family: 'Courier New', Courier, monospace; border-collapse: collapse; text-align: left;">
-                    <?php foreach ($print_items as $item): ?>
-                        <tr>
-                            <td colspan="3" style="font-weight: bold;"><?php echo htmlspecialchars($item['nama_produk']); ?></td>
-                        </tr>
-                        <tr>
-                            <td style="width: 50%; padding-bottom: 4px;"><?php echo $item['jumlah']; ?> x Rp <?php echo number_format($item['subtotal'] / $item['jumlah'], 0, ',', '.'); ?></td>
-                            <td style="width: 10%; padding-bottom: 4px;"></td>
-                            <td style="width: 40%; text-align: right; padding-bottom: 4px;">Rp <?php echo number_format($item['subtotal'], 0, ',', '.'); ?></td>
-                        </tr>
-                    <?php endforeach; ?>
-                </table>
-                
-                <p style="margin: 5px 0; font-size: 10px;">================================</p>
-                
-                <table style="width: 100%; font-size: 10px; font-family: 'Courier New', Courier, monospace;">
-                    <tr>
-                        <td style="text-align: left;">Total Tagihan:</td>
-                        <td style="text-align: right; font-weight: bold;">Rp <?php echo number_format($print_pesanan['total_bayar'], 0, ',', '.'); ?></td>
-                    </tr>
-                    <?php if ($print_pesanan['metode_bayar'] == 'tunai'): ?>
-                        <tr>
-                            <td style="text-align: left;">Bayar:</td>
-                            <td style="text-align: right;">Rp <?php echo number_format((int)$_GET['bayar'], 0, ',', '.'); ?></td>
-                        </tr>
-                        <tr>
-                            <td style="text-align: left;">Kembali:</td>
-                            <td style="text-align: right; font-weight: bold;">Rp <?php echo number_format((int)$_GET['kembali'], 0, ',', '.'); ?></td>
-                        </tr>
-                    <?php endif; ?>
-                </table>
-                
-                <p style="margin: 15px 0 5px 0; font-size: 10px;">================================</p>
-                <p style="margin: 5px 0; font-size: 10px; font-style: italic;">Terima kasih atas kunjungan Anda!<br>Semoga harimu menyenangkan, sayang! ❤️</p>
-            </div>
+                <div class="modal-group">
+                    <label class="modal-label">No. WhatsApp (Opsional)</label>
+                    <input type="number" name="no_telp" class="modal-input" placeholder="08xxxx">
+                </div>
+                <div class="modal-group">
+                    <label class="modal-label">Metode Pembayaran</label>
+                    <div class="pay-methods">
+                        <input type="radio" name="metode_bayar" id="pay-tunai" value="tunai" checked class="d-none" onchange="toggleCashInput(true)">
+                        <label for="pay-tunai" class="pay-method-btn selected" onclick="selectPayMethod(this)">
+                            <i class="bi bi-cash d-block mb-1" style="font-size: 1.2rem;"></i>Tunai
+                        </label>
+
+                        <input type="radio" name="metode_bayar" id="pay-qris" value="qris_offline" class="d-none" onchange="toggleCashInput(false)">
+                        <label for="pay-qris" class="pay-method-btn" onclick="selectPayMethod(this)">
+                            <i class="bi bi-qr-code d-block mb-1" style="font-size: 1.2rem;"></i>QRIS
+                        </label>
+
+                        <input type="radio" name="metode_bayar" id="pay-debit" value="debit" class="d-none" onchange="toggleCashInput(false)">
+                        <label for="pay-debit" class="pay-method-btn" onclick="selectPayMethod(this)">
+                            <i class="bi bi-credit-card-2-back d-block mb-1" style="font-size: 1.2rem;"></i>Debit
+                        </label>
+                    </div>
+                </div>
+
+                <div class="modal-summary">
+                    <div class="modal-summary-row">
+                        <span style="color: var(--text-sub);">Tagihan:</span>
+                        <span id="modalTotalTagihan">Rp 0</span>
+                    </div>
+                    <div id="cashSection">
+                        <div class="modal-summary-row">
+                            <span style="color: var(--text-sub);">Uang Diterima:</span>
+                            <input type="number" name="uang_bayar" id="txtBayar" class="modal-input"
+                                style="width: 160px; text-align: right; padding: 6px 10px; font-family: 'JetBrains Mono', monospace; font-size: 0.95rem;"
+                                placeholder="0" onkeyup="calculateChange()" required>
+                        </div>
+                        <div class="modal-summary-row total">
+                            <span class="label" style="font-weight: 700;">Kembalian:</span>
+                            <span class="val modal-kembalian" id="lblKembalian">Rp 0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <input type="hidden" name="total_bayar" id="hiddenTotal">
+                <input type="hidden" name="uang_kembali" id="hiddenKembali" value="0">
+                <input type="hidden" name="items_json" id="hiddenItemsJson">
+                <input type="hidden" name="proses_transaksi" value="1">
+
+                <div style="display: flex; gap: 10px;">
+                    <button type="button" class="btn-pay" style="flex: 0 0 44px; border-radius: 10px; padding: 12px; background: var(--surface-2); color: var(--text-sub);" onclick="closeCheckoutModal()">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                    <button type="submit" class="btn-pay" id="btnSubmitCheckout" style="flex: 1; border-radius: 10px;">
+                        <i class="bi bi-printer"></i> SELESAI &amp; CETAK STRUK
+                    </button>
+                </div>
+            </form>
         </div>
-        <script>
-            window.addEventListener('DOMContentLoaded', () => {
-                window.print();
-                setTimeout(() => {
-                    window.location.href = 'index.php';
-                }, 1000);
-            });
-        </script>
+    </div>
+
+    <!-- PRINT RECEIPT AREA -->
+    <?php if ($print_pesanan): ?>
+    <div class="print-area" id="printArea">
+        <div style="text-align: center; font-family: 'Courier New', monospace; width: 300px; margin: 0 auto; padding: 10px; color: #000; font-size: 12px; line-height: 1.4;">
+            <h3 style="margin: 0; font-size: 15px;">MERAH PUTIH STORE</h3>
+            <p style="margin: 4px 0 10px; font-size: 9px; color: #333;">
+                <?php echo htmlspecialchars($print_pesanan['nama_cabang']); ?><br>
+                <?php echo htmlspecialchars($print_pesanan['alamat_cabang'] ?: 'Premium Offline Store'); ?><br>
+                Telp: <?php echo htmlspecialchars($print_pesanan['telp_cabang'] ?: '-'); ?>
+            </p>
+            <div style="text-align: left; font-size: 10px; margin-bottom: 6px;">
+                No. Nota : #<?php echo $print_pesanan['id_pesanan']; ?><br>
+                Tgl/Jam  : <?php echo date('d/m/Y H:i', strtotime($print_pesanan['tgl_pesan'])); ?><br>
+                Customer : <?php echo htmlspecialchars($print_pesanan['nama_penerima']); ?><br>
+                Metode   : <?php echo strtoupper($print_pesanan['metode_bayar']); ?>
+            </div>
+            <p style="font-size: 10px;">================================</p>
+            <table style="width: 100%; font-size: 10px; border-collapse: collapse; text-align: left;">
+                <?php foreach ($print_items as $item): ?>
+                <tr><td colspan="3" style="font-weight: bold; padding-bottom: 2px;"><?php echo htmlspecialchars($item['nama_produk']); ?></td></tr>
+                <tr>
+                    <td style="width: 50%; padding-bottom: 5px;"><?php echo $item['jumlah']; ?> x Rp <?php echo number_format($item['subtotal'] / $item['jumlah'], 0, ',', '.'); ?></td>
+                    <td></td>
+                    <td style="width: 40%; text-align: right; padding-bottom: 5px;">Rp <?php echo number_format($item['subtotal'], 0, ',', '.'); ?></td>
+                </tr>
+                <?php endforeach; ?>
+            </table>
+            <p style="font-size: 10px; margin: 6px 0;">================================</p>
+            <table style="width: 100%; font-size: 10px;">
+                <tr><td>Total:</td><td style="text-align: right; font-weight: bold;">Rp <?php echo number_format($print_pesanan['total_bayar'], 0, ',', '.'); ?></td></tr>
+                <?php if ($print_pesanan['metode_bayar'] == 'tunai'): ?>
+                <tr><td>Bayar:</td><td style="text-align: right;">Rp <?php echo number_format((int)$_GET['bayar'], 0, ',', '.'); ?></td></tr>
+                <tr><td>Kembali:</td><td style="text-align: right; font-weight: bold;">Rp <?php echo number_format((int)$_GET['kembali'], 0, ',', '.'); ?></td></tr>
+                <?php endif; ?>
+            </table>
+            <p style="font-size: 10px; margin: 14px 0 5px;">================================</p>
+            <p style="font-size: 10px; font-style: italic;">Terima kasih atas kunjungan Anda!<br>Semoga harimu menyenangkan ❤️</p>
+        </div>
+    </div>
+    <script>
+        window.addEventListener('DOMContentLoaded', () => {
+            window.print();
+            setTimeout(() => { window.location.href = 'index.php'; }, 1000);
+        });
+    </script>
     <?php endif; ?>
 
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    
     <script>
-        // Load the array of products from PHP database query
-        const productsList = <?php echo json_encode($prods); ?>;
-        let currentCart = {};
+    const productsList = <?php echo json_encode($prods); ?>;
+    let currentCart = {};
 
-        // Render products & setup clock on document load
-        $(document).ready(function() {
-            renderLookupTable();
-            
-            // Focus barcode input immediately
-            $('#posBarcodeScanner').focus();
+    document.addEventListener('DOMContentLoaded', function() {
+        renderLookupTable();
+        document.getElementById('posBarcodeScanner').focus();
 
-            // Setup real-time header clock
-            setInterval(() => {
-                const now = new Date();
-                $('#posClock').text(now.toTimeString().split(' ')[0]);
-            }, 1000);
+        setInterval(() => {
+            const now = new Date();
+            document.getElementById('posClock').textContent = now.toTimeString().split(' ')[0];
+        }, 1000);
 
-            // Refocus barcode input on checkout modal close
-            $('#checkoutModal').on('hidden.bs.modal', function () {
-                $('#posBarcodeScanner').focus();
-            });
-
-            // Set up Keyboard Shortcuts (Minimarket Cashier standard)
-            $(window).keydown(function(e) {
-                // F4 to focus scanner input
-                if (e.key === 'F4') {
-                    e.preventDefault();
-                    $('#posBarcodeScanner').focus().select();
-                }
-                // F2 to focus manual search
-                if (e.key === 'F2') {
-                    e.preventDefault();
-                    $('#posSearch').focus().select();
-                }
-                // F8 or End to trigger checkout button if cart is not empty
-                if (e.key === 'F8' || e.key === 'End') {
-                    e.preventDefault();
-                    if (Object.keys(currentCart).length > 0) {
-                        showCheckoutModal();
-                    }
-                }
-            });
-
-            // Submit checkout form on Enter key inside cash input if valid
-            $('#txtBayar').keydown(function(e) {
-                if (e.key === 'Enter') {
-                    if ($('#btnSubmitCheckout').prop('disabled') === false) {
-                        $('#posCheckoutForm').submit();
-                    } else {
-                        e.preventDefault();
-                    }
-                }
-            });
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'F4') { e.preventDefault(); document.getElementById('posBarcodeScanner').focus(); document.getElementById('posBarcodeScanner').select(); }
+            if (e.key === 'F2') { e.preventDefault(); document.getElementById('posSearch').focus(); document.getElementById('posSearch').select(); }
+            if (e.key === 'F8' || e.key === 'End') { e.preventDefault(); if (Object.keys(currentCart).length > 0) showCheckoutModal(); }
         });
 
-        // Helper to format currency
-        function formatRupiah(number) {
-            return new Intl.NumberFormat('id-ID', {
-                style: 'currency',
-                currency: 'IDR',
-                minimumFractionDigits: 0,
-                maximumFractionDigits: 0
-            }).format(number).replace("IDR", "Rp");
-        }
-
-        // Render text-only compact product lookup table
-        function renderLookupTable() {
-            const tbody = $('#lookupTableBody');
-            tbody.empty();
-
-            const query = $('#posSearch').val().toLowerCase();
-            let filtered = productsList;
-
-            // Apply search query
-            if (query.trim() !== '') {
-                filtered = filtered.filter(p => 
-                    p.nama_produk.toLowerCase().includes(query) || 
-                    (p.barcode && p.barcode.toLowerCase().includes(query))
-                );
-            } else {
-                // Display first 10 products if search is empty to keep list clean
-                filtered = filtered.slice(0, 8);
+        document.getElementById('txtBayar').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !document.getElementById('btnSubmitCheckout').disabled) {
+                document.getElementById('posCheckoutForm').submit();
             }
+        });
+    });
 
-            if (filtered.length === 0) {
-                tbody.append('<tr><td colspan="5" class="text-center text-muted small py-3">Tidak ditemukan</td></tr>');
+    function formatRupiah(n) {
+        return 'Rp ' + new Intl.NumberFormat('id-ID').format(n);
+    }
+
+    function renderLookupTable() {
+        const tbody = document.getElementById('lookupTableBody');
+        tbody.innerHTML = '';
+        const query = document.getElementById('posSearch').value.toLowerCase();
+        let filtered = productsList;
+        if (query.trim() !== '') {
+            filtered = filtered.filter(p => 
+                p.nama_produk.toLowerCase().includes(query) || 
+                p.nama_satuan.toLowerCase().includes(query) || 
+                (p.barcode_var && p.barcode_var.toLowerCase().includes(query)) ||
+                (p.barcode_parent && p.barcode_parent.toLowerCase().includes(query))
+            );
+        } else {
+            filtered = filtered.slice(0, 8);
+        }
+        if (filtered.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color: var(--text-sub); padding: 20px; font-size: 0.8rem;">Tidak ditemukan</td></tr>';
+            return;
+        }
+        filtered.forEach(p => {
+            const availQty = Math.floor(p.stok_master / p.faktor_kali);
+            const oos = availQty <= 0;
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td style="font-family: 'JetBrains Mono', monospace; color: var(--text-sub); font-size: 0.72rem;">${p.barcode_var || p.barcode_parent || '-'}</td>
+                <td style="font-weight: 600;">${p.nama_produk} <span class="text-warning">(${p.nama_satuan})</span></td>
+                <td style="font-family: 'JetBrains Mono', monospace; font-size: 0.8rem;">${formatRupiah(p.harga)}</td>
+                <td style="text-align: center; font-family: 'JetBrains Mono', monospace; color: ${availQty > 0 ? 'var(--green)' : '#FF6B6B'};">${availQty}</td>
+                <td style="text-align: center;">
+                    <button class="btn-add-item" ${oos ? 'disabled' : ''} onclick="addToCart(${p.id_kemasan})">+</button>
+                </td>
+            `;
+            tbody.appendChild(row);
+        });
+    }
+
+    function filterProducts() { renderLookupTable(); }
+
+    function handleBarcodeScan(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const val = document.getElementById('posBarcodeScanner').value.trim();
+            if (val === '') {
+                if (Object.keys(currentCart).length > 0) showCheckoutModal();
                 return;
             }
-
-            filtered.forEach(p => {
-                const isOutOfStock = p.stok <= 0;
-                const rowHTML = `
-                    <tr class="${isOutOfStock ? 'table-danger text-decoration-line-through opacity-70' : ''}">
-                        <td class="font-monospace text-muted" style="font-size:0.75rem;">${p.barcode || '-'}</td>
-                        <td class="fw-semibold">${p.nama_produk}</td>
-                        <td class="text-end font-monospace">${formatRupiah(p.harga)}</td>
-                        <td class="text-center font-monospace">${p.stok}</td>
-                        <td class="text-center">
-                            <button class="btn btn-xs btn-outline-danger py-0 px-2 rounded" ${isOutOfStock ? 'disabled' : `onclick="addToCart(${p.id})"`}>
-                                <i class="bi bi-plus"></i>
-                            </button>
-                        </td>
-                    </tr>
-                `;
-                tbody.append(rowHTML);
-            });
-        }
-
-        // Filter products manual on typing
-        function filterProducts() {
-            renderLookupTable();
-        }
-
-        // Handle physical/manual barcode scanner entry
-        function handleBarcodeScan(e) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                const barcodeVal = $('#posBarcodeScanner').val().trim();
-                if (barcodeVal === '') {
-                    if (Object.keys(currentCart).length > 0) {
-                        showCheckoutModal();
-                    }
-                    return;
+            
+            // Prioritize matching specific variant barcode first
+            let variant = productsList.find(p => p.barcode_var === val);
+            if (!variant) {
+                // Otherwise fall back to parent barcode, picking the 'Pcs' variant (factor = 1) if available
+                const matches = productsList.filter(p => p.barcode_parent === val);
+                if (matches.length > 0) {
+                    variant = matches.find(p => p.faktor_kali === 1) || matches[0];
                 }
-
-                // Find product by barcode
-                const product = productsList.find(p => p.barcode === barcodeVal);
-                if (product) {
-                    if (product.stok <= 0) {
-                        alert(`Barang "${product.nama_produk}" tidak bisa di-scan karena STOK HABIS!`);
-                    } else {
-                        addToCart(product.id);
-                        flashScannerSuccess();
-                    }
+            }
+            if (!variant) {
+                // Try finding by ID
+                variant = productsList.find(p => p.id_kemasan == val || p.id_produk == val);
+            }
+            
+            if (variant) {
+                const availQty = Math.floor(variant.stok_master / variant.faktor_kali);
+                if (availQty <= 0) {
+                    alert(`Stok "${variant.nama_produk} (${variant.nama_satuan})" habis!`);
                 } else {
-                    // Fallback to find by ID if barcode is a numeric ID
-                    const productById = productsList.find(p => p.id == barcodeVal);
-                    if (productById) {
-                        if (productById.stok <= 0) {
-                            alert(`Barang "${productById.nama_produk}" tidak bisa di-scan karena STOK HABIS!`);
-                        } else {
-                            addToCart(productById.id);
-                            flashScannerSuccess();
-                        }
-                    } else {
-                        alert(`Barcode / Kode "${barcodeVal}" tidak terdaftar di database!`);
-                    }
+                    addToCart(variant.id_kemasan);
+                    flashScanner();
                 }
-                
-                // Clear and re-focus scanner input
-                $('#posBarcodeScanner').val('').focus();
-            }
-        }
-
-        // Flash visual scanner alert on card
-        function flashScannerSuccess() {
-            const card = $('#scannerCard');
-            card.addClass('scanner-flash');
-            setTimeout(() => { card.removeClass('scanner-flash'); }, 400);
-        }
-
-        // Add item to POS Cart
-        function addToCart(productId) {
-            const product = productsList.find(p => p.id == productId);
-            if (!product) return;
-
-            // Check if stock allows
-            const currentQty = currentCart[productId] ? currentCart[productId].qty : 0;
-            if (currentQty >= product.stok) {
-                alert(`Gagal menambah. Stok "${product.nama_produk}" terbatas hanya ${product.stok} pcs.`);
-                return;
-            }
-
-            if (currentCart[productId]) {
-                currentCart[productId].qty++;
             } else {
-                currentCart[productId] = {
-                    id: product.id,
-                    nama: product.nama_produk,
-                    barcode: product.barcode,
-                    harga: parseInt(product.harga),
-                    harga_grosir: product.harga_grosir ? parseInt(product.harga_grosir) : null,
-                    min_qty_grosir: product.min_qty_grosir ? parseInt(product.min_qty_grosir) : null,
-                    stok: parseInt(product.stok),
-                    qty: 1
-                };
+                alert(`Kode "${val}" tidak ditemukan!`);
             }
+            document.getElementById('posBarcodeScanner').value = '';
+            document.getElementById('posBarcodeScanner').focus();
+        }
+    }
 
-            updateCartUI();
-            $('#posBarcodeScanner').focus(); // Automatically return focus
+    function flashScanner() {
+        const card = document.getElementById('scannerCard');
+        card.classList.add('flash');
+        setTimeout(() => card.classList.remove('flash'), 600);
+    }
+
+    function addToCart(idKemasan) {
+        const itemVar = productsList.find(p => p.id_kemasan == idKemasan);
+        if (!itemVar) return;
+        
+        const availQty = Math.floor(itemVar.stok_master / itemVar.faktor_kali);
+        const currentQty = currentCart[idKemasan] ? currentCart[idKemasan].qty : 0;
+        if (currentQty >= availQty) {
+            alert(`Stok "${itemVar.nama_produk} (${itemVar.nama_satuan})" terbatas (${availQty} ${itemVar.nama_satuan}).`);
+            return;
+        }
+        if (currentCart[idKemasan]) {
+            currentCart[idKemasan].qty++;
+        } else {
+            currentCart[idKemasan] = {
+                id_kemasan: itemVar.id_kemasan,
+                id_produk: itemVar.id_produk,
+                nama: itemVar.nama_produk + ' (' + itemVar.nama_satuan + ')',
+                nama_satuan: itemVar.nama_satuan,
+                faktor_kali: parseInt(itemVar.faktor_kali),
+                barcode: itemVar.barcode_var || itemVar.barcode_parent,
+                harga: parseInt(itemVar.harga),
+                harga_grosir: itemVar.nama_satuan === 'Pcs' && itemVar.harga_grosir ? parseInt(itemVar.harga_grosir) : null,
+                min_qty_grosir: itemVar.nama_satuan === 'Pcs' && itemVar.min_qty_grosir ? parseInt(itemVar.min_qty_grosir) : null,
+                stok_master: parseInt(itemVar.stok_master),
+                qty: 1
+            };
+        }
+        updateCartUI();
+        document.getElementById('posBarcodeScanner').focus();
+    }
+
+    function changeQty(idKemasan, inputEl) {
+        const qty = parseInt(inputEl.value) || 0;
+        const variant = productsList.find(p => p.id_kemasan == idKemasan);
+        const availQty = Math.floor(variant.stok_master / variant.faktor_kali);
+        if (qty <= 0) {
+            delete currentCart[idKemasan];
+        } else if (qty > availQty) {
+            alert(`Stok terbatas: ${availQty} ${variant.nama_satuan}.`);
+            inputEl.value = currentCart[idKemasan].qty;
+            return;
+        } else {
+            currentCart[idKemasan].qty = qty;
+        }
+        updateCartUI();
+        document.getElementById('posBarcodeScanner').focus();
+    }
+
+    function removeItem(idKemasan) {
+        delete currentCart[idKemasan];
+        updateCartUI();
+        document.getElementById('posBarcodeScanner').focus();
+    }
+
+    function updateCartUI() {
+        const tbody = document.getElementById('cartTableBody');
+        const emptyRow = document.getElementById('emptyCartRow');
+        const keys = Object.keys(currentCart);
+
+        // Remove old cart rows
+        document.querySelectorAll('.cart-row').forEach(r => r.remove());
+
+        if (keys.length === 0) {
+            emptyRow.style.display = '';
+            document.getElementById('lblSubtotal').textContent = 'Rp 0';
+            document.getElementById('lblTotal').textContent = 'Rp 0';
+            document.getElementById('lblNeonTotal').textContent = 'Rp 0';
+            document.getElementById('btnCheckout').disabled = true;
+            return;
         }
 
-        // Change quantity manually
-        function changeQty(productId, inputElement) {
-            const qtyVal = parseInt($(inputElement).val()) || 0;
-            const product = productsList.find(p => p.id == productId);
-            if (!product) return;
+        emptyRow.style.display = 'none';
+        document.getElementById('btnCheckout').disabled = false;
+        let total = 0;
+        let idx = 1;
 
-            if (qtyVal <= 0) {
-                delete currentCart[productId];
-            } else if (qtyVal > product.stok) {
-                alert(`Gagal menyimpan. Stok "${product.nama_produk}" terbatas hanya ${product.stok} pcs.`);
-                $(inputElement).val(currentCart[productId].qty);
-                return;
-            } else {
-                currentCart[productId].qty = qtyVal;
+        keys.forEach(key => {
+            const item = currentCart[key];
+            let price = item.harga;
+            let isWholesale = false;
+            if (item.harga_grosir && item.qty >= item.min_qty_grosir) {
+                price = item.harga_grosir; isWholesale = true;
             }
+            const sub = price * item.qty;
+            item.subtotal = sub;
+            total += sub;
 
-            updateCartUI();
-            $('#posBarcodeScanner').focus();
+            const tr = document.createElement('tr');
+            tr.className = 'cart-row';
+            tr.innerHTML = `
+                <td style="color: var(--text-sub); font-size: 0.75rem;">${idx++}</td>
+                <td>
+                    <span style="font-weight: 600; font-size: 0.88rem;">${item.nama}</span>
+                    ${isWholesale ? '<span style="background: rgba(192,57,43,0.2); color: #FF9999; font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; margin-left: 6px;">Grosir</span>' : ''}
+                </td>
+                <td style="font-family: 'JetBrains Mono', monospace; font-size: 0.8rem;">${formatRupiah(price)}</td>
+                <td style="text-align: center;">
+                    <input type="number" class="qty-input" value="${item.qty}" onchange="changeQty(${item.id_kemasan}, this)">
+                </td>
+                <td style="text-align: right; font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 0.85rem;">${formatRupiah(sub)}</td>
+                <td style="text-align: center;">
+                    <button class="btn-remove" onclick="removeItem(${item.id_kemasan})"><i class="bi bi-trash3"></i></button>
+                </td>
+            `;
+            tbody.insertBefore(tr, emptyRow);
+        });
+
+        document.getElementById('lblSubtotal').textContent = formatRupiah(total);
+        document.getElementById('lblTotal').textContent = formatRupiah(total);
+        document.getElementById('lblNeonTotal').textContent = formatRupiah(total);
+    }
+
+    function showCheckoutModal() {
+        let total = 0;
+        const items = [];
+        Object.keys(currentCart).forEach(k => {
+            const item = currentCart[k];
+            total += item.subtotal;
+            items.push(item);
+        });
+        document.getElementById('modalTotalTagihan').textContent = formatRupiah(total);
+        document.getElementById('hiddenTotal').value = total;
+        document.getElementById('hiddenItemsJson').value = JSON.stringify(items);
+        document.getElementById('txtBayar').value = total;
+        document.getElementById('hiddenKembali').value = 0;
+        document.getElementById('lblKembalian').textContent = 'Rp 0';
+        document.getElementById('checkoutOverlay').classList.add('open');
+        const isCash = document.querySelector('input[name="metode_bayar"]:checked').value === 'tunai';
+        toggleCashInput(isCash);
+        setTimeout(() => { if (isCash) { document.getElementById('txtBayar').focus(); document.getElementById('txtBayar').select(); } }, 300);
+    }
+
+    function closeCheckoutModal() {
+        document.getElementById('checkoutOverlay').classList.remove('open');
+        document.getElementById('posBarcodeScanner').focus();
+    }
+
+    document.getElementById('checkoutOverlay').addEventListener('click', function(e) {
+        if (e.target === this) closeCheckoutModal();
+    });
+
+    function selectPayMethod(el) {
+        document.querySelectorAll('.pay-method-btn').forEach(b => b.classList.remove('selected'));
+        el.classList.add('selected');
+        const isCash = el.getAttribute('for') === 'pay-tunai';
+        toggleCashInput(isCash);
+    }
+
+    function toggleCashInput(isCash) {
+        const section = document.getElementById('cashSection');
+        section.style.display = isCash ? '' : 'none';
+        if (!isCash) {
+            const total = parseInt(document.getElementById('hiddenTotal').value);
+            document.getElementById('txtBayar').value = total;
+            document.getElementById('hiddenKembali').value = 0;
+            document.getElementById('btnSubmitCheckout').disabled = false;
+        } else {
+            calculateChange();
         }
+    }
 
-        // Remove item from POS Cart
-        function removeItem(productId) {
-            if (currentCart[productId]) {
-                delete currentCart[productId];
-                updateCartUI();
-                $('#posBarcodeScanner').focus();
-            }
+    function calculateChange() {
+        const total = parseInt(document.getElementById('hiddenTotal').value) || 0;
+        const bayar = parseInt(document.getElementById('txtBayar').value) || 0;
+        const kembalian = bayar - total;
+        const lblK = document.getElementById('lblKembalian');
+        if (kembalian >= 0) {
+            lblK.textContent = formatRupiah(kembalian);
+            lblK.style.color = 'var(--green)';
+            document.getElementById('hiddenKembali').value = kembalian;
+            document.getElementById('btnSubmitCheckout').disabled = false;
+        } else {
+            lblK.textContent = 'Uang Kurang!';
+            lblK.style.color = '#FF6B6B';
+            document.getElementById('btnSubmitCheckout').disabled = true;
         }
-
-        // Update Cart rendering & numbers
-        function updateCartUI() {
-            const tbody = $('#cartTableBody');
-            const placeholder = $('#tableEmptyPlaceholder');
-            
-            // Clear previous rows but keep placeholder
-            tbody.find('.cart-row').remove();
-
-            const keys = Object.keys(currentCart);
-
-            if (keys.length === 0) {
-                placeholder.show();
-                $('#lblSubtotal').text('Rp 0');
-                $('#lblTotal').text('Rp 0');
-                $('#lblNeonTotal').text('Rp 0');
-                $('#btnCheckout').prop('disabled', true);
-                return;
-            }
-
-            placeholder.hide();
-            $('#btnCheckout').prop('disabled', false);
-
-            let subtotalTotal = 0;
-            let countIndex = 1;
-
-            keys.forEach(key => {
-                const item = currentCart[key];
-                
-                // Determine wholesale pricing
-                let activePrice = item.harga;
-                let isWholesale = false;
-                if (item.harga_grosir && item.harga_grosir > 0 && item.qty >= item.min_qty_grosir) {
-                    activePrice = item.harga_grosir;
-                    isWholesale = true;
-                }
-
-                const subtotal = activePrice * item.qty;
-                item.subtotal = subtotal; // Save current subtotal in item payload
-                subtotalTotal += subtotal;
-
-                const rowHTML = `
-                    <tr class="cart-row" id="cart-row-${item.id}">
-                        <td class="font-monospace text-muted text-center" style="font-size:0.8rem;">${countIndex++}</td>
-                        <td class="font-monospace text-muted" style="font-size:0.8rem;">${item.barcode || '-'}</td>
-                        <td>
-                            <span class="fw-semibold">${item.nama}</span>
-                            ${isWholesale ? '<span class="badge bg-danger rounded-pill ms-2" style="font-size:0.6rem;">Grosir</span>' : ''}
-                        </td>
-                        <td class="text-end font-monospace">${formatRupiah(activePrice)}</td>
-                        <td class="text-center">
-                            <input type="number" class="qty-input" value="${item.qty}" onchange="changeQty(${item.id}, this)">
-                        </td>
-                        <td class="text-end font-monospace fw-bold text-dark">${formatRupiah(subtotal)}</td>
-                        <td class="text-center">
-                            <button class="btn btn-sm btn-outline-secondary border-0 p-0 text-danger" onclick="removeItem(${item.id})">
-                                <i class="bi bi-trash-fill"></i>
-                            </button>
-                        </td>
-                    </tr>
-                `;
-                tbody.append(rowHTML);
-            });
-
-            $('#lblSubtotal').text(formatRupiah(subtotalTotal));
-            $('#lblTotal').text(formatRupiah(subtotalTotal));
-            $('#lblNeonTotal').text(formatRupiah(subtotalTotal));
-        }
-
-        // Show payment checkout modal
-        function showCheckoutModal() {
-            let total = 0;
-            const itemsArray = [];
-            
-            Object.keys(currentCart).forEach(key => {
-                const item = currentCart[key];
-                total += item.subtotal;
-                itemsArray.push(item);
-            });
-
-            // Set text & values in modal
-            $('#modalTotalTagihan').text(formatRupiah(total));
-            $('#hiddenTotal').val(total);
-            $('#hiddenItemsJson').val(JSON.stringify(itemsArray));
-
-            // Default cash input to tagihan total to speed up workflow
-            $('#txtBayar').val(total);
-            $('#hiddenKembali').val(0);
-            $('#lblKembalian').text('Rp 0');
-
-            // Toggle UI based on payment method
-            const isCash = $('input[name="metode_bayar"]:checked').val() === 'tunai';
-            toggleCashInput(isCash);
-
-            // Show bootstrap modal
-            const checkoutModal = new bootstrap.Modal(document.getElementById('checkoutModal'));
-            checkoutModal.show();
-            
-            // Focus cash input if Cash method is active
-            setTimeout(() => {
-                if (isCash) {
-                    $('#txtBayar').focus().select();
-                } else {
-                    $('#btnSubmitCheckout').focus();
-                }
-            }, 500);
-        }
-
-        // Toggle cash inputs based on PAYMENT TYPE (QRIS/Debit doesn't need cash change calculator)
-        function toggleCashInput(isCash) {
-            if (isCash) {
-                $('#cashCalculatorSection').show();
-                $('#txtBayar').prop('required', true);
-                calculateChange();
-            } else {
-                $('#cashCalculatorSection').hide();
-                $('#txtBayar').prop('required', false);
-                // Set default for non-cash payment
-                const total = parseInt($('#hiddenTotal').val());
-                $('#txtBayar').val(total);
-                $('#hiddenKembali').val(0);
-                $('#btnSubmitCheckout').prop('disabled', false);
-            }
-        }
-
-        // Live calculation of change
-        function calculateChange() {
-            const total = parseInt($('#hiddenTotal').val()) || 0;
-            const bayar = parseInt($('#txtBayar').val()) || 0;
-            const kembali = bayar - total;
-
-            if (kembali >= 0) {
-                $('#lblKembalian').text(formatRupiah(kembali)).removeClass('text-danger').addClass('text-success');
-                $('#hiddenKembali').val(kembali);
-                $('#btnSubmitCheckout').prop('disabled', false);
-            } else {
-                $('#lblKembalian').text('Uang Kurang!').removeClass('text-success').addClass('text-danger');
-                $('#hiddenKembali').val(0);
-                $('#btnSubmitCheckout').prop('disabled', true); // Disable checkout if money is insufficient
-            }
-        }
+    }
     </script>
 </body>
 </html>

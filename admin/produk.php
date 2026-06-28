@@ -5,41 +5,83 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
     header("location: login.php");
     exit;
 }
+
+// Handler Hapus Varian Kemasan
+if (isset($_GET['hapus_varian'])) {
+    $id_v = (int)$_GET['hapus_varian'];
+    $id_p = (int)$_GET['id_p'];
+    $v_data = mysqli_fetch_assoc(mysqli_query($koneksi, "SELECT nama_satuan FROM produk_kemasan WHERE id_kemasan = $id_v"));
+    if ($v_data && $v_data['nama_satuan'] !== 'Pcs') {
+        mysqli_query($koneksi, "DELETE FROM produk_kemasan WHERE id_kemasan = $id_v");
+    }
+    header("location: produk.php");
+    exit;
+}
 ?>
 <!DOCTYPE html>
 <html lang="id">
 <head>
-    <title>Kelola Produk - MerahPutih</title>
+    <link rel="icon" href="../assets/favicon.png" type="image/png">
+    <title>Kelola Produk - MerahPutih Admin</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <style>
-        .main-content { margin-left: 260px; padding: 40px; }
-        .card-premium { border: none; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); }
+        *, body { font-family: 'Plus Jakarta Sans', sans-serif !important; }
+        body { background: #F0F4FF; }
+        .main-content { margin-left: 268px; padding: 0; }
+        .topbar { height: 68px; background: white; border-bottom: 1px solid rgba(0,0,0,0.06); display: flex; align-items: center; justify-content: space-between; padding: 0 32px; position: sticky; top: 0; z-index: 500; box-shadow: 0 2px 12px rgba(0,0,0,0.04); }
+        .topbar h1 { font-size: 1.15rem; font-weight: 700; color: #1A1A2E; margin: 0; }
+        .topbar p { font-size: 0.78rem; color: #8A8AA0; margin: 0; }
+        .content-wrap { padding: 28px 32px; }
+        .card-premium { background: white; border: none; border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.04); }
+        .table thead th { background: #F8F8FF; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #9A9AB0; border-bottom: 1px solid #EEEEF8; padding: 14px 16px; }
+        .table tbody td { padding: 14px 16px; border-bottom: 1px solid #F5F5FF; vertical-align: middle; font-size: 0.88rem; }
+        .table tbody tr:hover td { background: #FAFAFF; }
+        .table tbody tr:last-child td { border-bottom: none; }
+        .btn-admin { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 10px; font-size: 0.82rem; font-weight: 600; border: none; cursor: pointer; transition: all 0.2s; text-decoration: none; }
+        .btn-primary-admin { background: #1A1A2E; color: white; } .btn-primary-admin:hover { background: #0F3460; color: white; }
+        .btn-red-admin { background: #FEF0EE; color: #C0392B; border: 1px solid #FECDC8; } .btn-red-admin:hover { background: #C0392B; color: white; border-color: #C0392B; }
+        .btn-danger-solid { background: linear-gradient(135deg, #922B21, #E74C3C); color: white; } .btn-danger-solid:hover { opacity: 0.9; }
+        .badge-status { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 20px; font-size: 0.72rem; font-weight: 700; }
+        .modal-content { border: none; border-radius: 20px; box-shadow: 0 30px 80px rgba(0,0,0,0.15); }
+        .modal-header { background: #F8F8FF; border-bottom: 1px solid #EEEEF8; border-radius: 20px 20px 0 0; padding: 20px 24px; }
+        .modal-title { font-size: 1rem; font-weight: 700; color: #1A1A2E; }
+        .modal-body { padding: 24px; }
+        .modal-footer { border-top: 1px solid #EEEEF8; padding: 16px 24px; border-radius: 0 0 20px 20px; }
+        .form-control, .form-select { border: 1.5px solid #E8E8F0; border-radius: 10px; padding: 10px 14px; font-size: 0.88rem; transition: border-color 0.2s; }
+        .form-control:focus, .form-select:focus { border-color: #C0392B; box-shadow: 0 0 0 3px rgba(192,57,43,0.08); }
+        .form-label { font-size: 0.8rem; font-weight: 600; color: #4A4A6A; margin-bottom: 6px; }
+        .prod-img-thumb { width: 52px; height: 52px; object-fit: cover; border-radius: 10px; border: 2px solid #F0F0FF; }
+        @media (max-width: 992px) { .main-content { margin-left: 0; } }
     </style>
 </head>
 <body>
     <?php include 'navbar.php'; ?>
 
     <div class="main-content">
-        <div class="card card-premium p-4 bg-white">
-            <div class="d-flex justify-content-between align-items-center mb-4">
-                <h4 class="fw-bold">Manajemen Produk</h4>
-                <div class="d-flex gap-2">
-                    <button class="btn btn-outline-danger rounded-pill px-4 shadow-sm" data-bs-toggle="modal" data-bs-target="#tambahStok">
-                        <i class="bi bi-box-arrow-in-down"></i> Tambah Stok (Persediaan)
-                    </button>
-                    <button class="btn btn-danger rounded-pill px-4 shadow-sm" data-bs-toggle="modal" data-bs-target="#tambah">
-                        <i class="bi bi-plus-lg"></i> Produk Baru
-                    </button>
-                </div>
+        <div class="topbar">
+            <div>
+                <h1>Manajemen Produk</h1>
+                <p>Kelola katalog produk, stok, dan harga</p>
             </div>
-            
+            <div style="display: flex; gap: 10px;">
+                <button class="btn-admin btn-red-admin" data-bs-toggle="modal" data-bs-target="#tambahStok">
+                    <i class="bi bi-box-arrow-in-down"></i> Tambah Stok
+                </button>
+                <button class="btn-admin btn-danger-solid" data-bs-toggle="modal" data-bs-target="#tambah">
+                    <i class="bi bi-plus-lg"></i> Produk Baru
+                </button>
+            </div>
+        </div>
+
+        <div class="content-wrap">
+        <div class="card-premium">
             <div class="table-responsive">
-                <table class="table table-hover align-middle">
-                    <thead class="table-light">
+                <table class="table mb-0">
+                    <thead>
                         <tr>
-                            <th>Foto</th><th>Nama Produk</th><th>Barcode</th><th>Harga</th><th>Stok</th><th class="text-center">Aksi</th>
+                            <th style="width: 68px;">Foto</th><th>Nama Produk</th><th>Barcode</th><th>Harga</th><th>Stok per Cabang</th><th style="text-align:center;">Aksi</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -48,10 +90,12 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
                         while($p = mysqli_fetch_assoc($res)): 
                         ?>
                         <tr>
-                            <td><img src="<?php echo (strpos($p['foto'], 'http') === 0) ? $p['foto'] : '../assets/'.$p['foto']; ?>" width="60" class="rounded shadow-sm"></td>
-                            <td class="fw-semibold"><?php echo $p['nama_produk']; ?></td>
-                            <td class="font-monospace small"><?php echo $p['barcode'] ?: '-'; ?></td>
-                            <td class="text-danger fw-bold">Rp <?php echo number_format($p['harga']); ?></td>
+                            <td>
+                                <img src="<?php echo (strpos($p['foto'], 'http') === 0) ? $p['foto'] : '../assets/'.$p['foto']; ?>" class="prod-img-thumb" onerror="this.style.display='none'">
+                            </td>
+                            <td><div style="font-weight: 700; color: #1A1A2E;"><?php echo htmlspecialchars($p['nama_produk']); ?></div></td>
+                            <td><code style="font-size: 0.78rem; color: #6A6A8A; background: #F5F5FF; padding: 2px 8px; border-radius: 5px;"><?php echo $p['barcode'] ?: '-'; ?></code></td>
+                            <td><span style="color: #C0392B; font-weight: 700;">Rp <?php echo number_format($p['harga']); ?></span></td>
                             <td>
                                 <?php
                                 $pid = $p['id'];
@@ -73,14 +117,16 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
                                 }
                                 ?>
                             </td>
-                            <td class="text-center">
-                                <button class="btn btn-sm btn-warning text-white rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#edit<?php echo $p['id']; ?>">Edit</button>
-                                <a href="produk.php?hapus=<?php echo $p['id']; ?>" class="btn btn-sm btn-outline-danger rounded-pill px-3 ms-1" onclick="return confirm('Hapus produk ini?')">Hapus</a>
+                            <td style="text-align: center;">
+                                <div style="display: flex; gap: 6px; justify-content: center;">
+                                    <button class="btn-admin btn-red-admin" style="padding: 6px 12px; font-size: 0.78rem;" data-bs-toggle="modal" data-bs-target="#edit<?php echo $p['id']; ?>"><i class="bi bi-pencil"></i> Edit</button>
+                                    <a href="produk.php?hapus=<?php echo $p['id']; ?>" class="btn-admin" style="padding: 6px 12px; font-size: 0.78rem; background: #FEF0EE; color: #C0392B; border: 1px solid #FECDC8;" onclick="return confirm('Hapus produk ini?')"><i class="bi bi-trash3"></i></a>
+                                </div>
                             </td>
                         </tr>
 
                         <div class="modal fade" id="edit<?php echo $p['id']; ?>" tabindex="-1">
-                            <div class="modal-dialog"><div class="modal-content">
+                            <div class="modal-dialog modal-lg"><div class="modal-content">
                                 <form method="POST" enctype="multipart/form-data">
                                     <div class="modal-header"><h5>Edit Produk</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
                                     <div class="modal-body">
@@ -129,16 +175,94 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
                                                 </div>
                                             <?php endwhile; ?>
                                         </div>
-                                        <div class="row mb-2">
-                                            <div class="col-6">
-                                                <input type="number" name="harga_grosir" class="form-control" placeholder="Harga Grosir" value="<?php echo $p['harga_grosir']; ?>">
-                                                <small class="text-muted">Kosongkan jika tidak ada</small>
-                                            </div>
-                                            <div class="col-6">
-                                                <input type="number" name="min_qty_grosir" class="form-control" placeholder="Min. Qty" value="<?php echo $p['min_qty_grosir'] ?? 2; ?>">
-                                                <small class="text-muted">Minimal beli</small>
-                                            </div>
-                                        </div>
+                                        <div class="row mb-3">
+                                             <div class="col-6">
+                                                 <input type="number" name="harga_grosir" class="form-control" placeholder="Harga Grosir" value="<?php echo $p['harga_grosir']; ?>">
+                                                 <small class="text-muted">Kosongkan jika tidak ada</small>
+                                             </div>
+                                             <div class="col-6">
+                                                 <input type="number" name="min_qty_grosir" class="form-control" placeholder="Min. Qty" value="<?php echo $p['min_qty_grosir'] ?? 2; ?>">
+                                                 <small class="text-muted">Minimal beli</small>
+                                             </div>
+                                         </div>
+
+                                         <!-- Varian Kemasan Section -->
+                                         <div class="card p-3 bg-light mb-3">
+                                             <h6 class="fw-bold text-danger mb-2 small"><i class="bi bi-box-seam"></i> Kelola Kemasan (Satuan Varian)</h6>
+                                             <div id="varian-list-<?php echo $p['id']; ?>">
+                                                 <?php
+                                                 $variants_q = mysqli_query($koneksi, "SELECT * FROM produk_kemasan WHERE id_produk = {$p['id']} ORDER BY id_kemasan ASC");
+                                                 while($v = mysqli_fetch_assoc($variants_q)):
+                                                 ?>
+                                                     <div class="row g-2 mb-2 align-items-center variant-row" id="row_variant_<?php echo $v['id_kemasan']; ?>">
+                                                         <input type="hidden" name="variant_id[<?php echo $v['id_kemasan']; ?>]" value="<?php echo $v['id_kemasan']; ?>">
+                                                         <div class="col-4">
+                                                             <?php if ($v['nama_satuan'] == 'Pcs'): ?>
+                                                                 <input type="text" name="variant_nama[<?php echo $v['id_kemasan']; ?>]" class="form-control form-control-sm" value="Pcs" readonly required>
+                                                             <?php else: ?>
+                                                                 <select name="variant_nama[<?php echo $v['id_kemasan']; ?>]" class="form-select form-select-sm" required>
+                                                                     <?php
+                                                                     $satuan_edit_q = mysqli_query($koneksi, "SELECT nama_satuan FROM varian_satuan WHERE nama_satuan != 'Pcs' ORDER BY id ASC");
+                                                                     while($se = mysqli_fetch_assoc($satuan_edit_q)):
+                                                                     ?>
+                                                                         <option value="<?php echo htmlspecialchars($se['nama_satuan']); ?>" <?php echo ($v['nama_satuan'] == $se['nama_satuan']) ? 'selected' : ''; ?>><?php echo htmlspecialchars($se['nama_satuan']); ?></option>
+                                                                     <?php endwhile; ?>
+                                                                 </select>
+                                                             <?php endif; ?>
+                                                         </div>
+                                                         <div class="col-3">
+                                                             <input type="number" name="variant_faktor[<?php echo $v['id_kemasan']; ?>]" class="form-control form-control-sm text-end font-monospace" value="<?php echo $v['faktor_kali']; ?>" placeholder="Isi" required <?php echo ($v['nama_satuan'] == 'Pcs' && $v['faktor_kali'] == 1) ? 'readonly' : ''; ?>>
+                                                         </div>
+                                                         <div class="col-4">
+                                                             <input type="number" name="variant_harga[<?php echo $v['id_kemasan']; ?>]" class="form-control form-control-sm text-end font-monospace" value="<?php echo $v['harga']; ?>" placeholder="Harga" required>
+                                                         </div>
+                                                         <div class="col-1 text-center">
+                                                             <?php if($v['nama_satuan'] !== 'Pcs'): ?>
+                                                                 <a href="produk.php?hapus_varian=<?php echo $v['id_kemasan']; ?>&id_p=<?php echo $p['id']; ?>" class="text-danger small" onclick="return confirm('Hapus kemasan varian ini?')"><i class="bi bi-trash"></i></a>
+                                                             <?php endif; ?>
+                                                         </div>
+                                                         <div class="col-12 mt-1">
+                                                             <input type="text" name="variant_barcode[<?php echo $v['id_kemasan']; ?>]" class="form-control form-control-sm" value="<?php echo htmlspecialchars($v['barcode'] ?? ''); ?>" placeholder="Barcode Kemasan (Opsional)">
+                                                         </div>
+                                                     </div>
+                                                 <?php endwhile; ?>
+                                             </div>
+                                             
+                                             <div class="border-top pt-2 mt-2">
+                                                 <button type="button" class="btn btn-sm btn-outline-danger w-100 mb-2" onclick="toggleAddVariant(<?php echo $p['id']; ?>)">
+                                                     <i class="bi bi-plus-lg"></i> Tambah Kemasan
+                                                 </button>
+                                                 <div id="add-variant-box-<?php echo $p['id']; ?>" style="display:none;" class="p-3 border rounded bg-white shadow-sm">
+                                                     <div class="row g-2 mb-2">
+                                                         <div class="col-6">
+                                                             <label class="form-label" style="font-size:0.75rem;">Nama Varian</label>
+                                                             <select id="new_v_nama_<?php echo $p['id']; ?>" class="form-select form-select-sm">
+                                                                 <?php
+                                                                 $satuan_add_q = mysqli_query($koneksi, "SELECT nama_satuan FROM varian_satuan WHERE nama_satuan != 'Pcs' ORDER BY id ASC");
+                                                                 while($sa = mysqli_fetch_assoc($satuan_add_q)):
+                                                                 ?>
+                                                                     <option value="<?php echo htmlspecialchars($sa['nama_satuan']); ?>"><?php echo htmlspecialchars($sa['nama_satuan']); ?></option>
+                                                                 <?php endwhile; ?>
+                                                             </select>
+                                                         </div>
+                                                         <div class="col-6">
+                                                             <label class="form-label" style="font-size:0.75rem;">Faktor Kali (Isi)</label>
+                                                             <input type="number" id="new_v_faktor_<?php echo $p['id']; ?>" class="form-control form-control-sm" placeholder="Contoh: 10">
+                                                         </div>
+                                                         <div class="col-6">
+                                                             <label class="form-label" style="font-size:0.75rem;">Harga Varian (Rp)</label>
+                                                             <input type="number" id="new_v_harga_<?php echo $p['id']; ?>" class="form-control form-control-sm" placeholder="Contoh: 28000">
+                                                         </div>
+                                                         <div class="col-6">
+                                                             <label class="form-label" style="font-size:0.75rem;">Barcode Varian</label>
+                                                             <input type="text" id="new_v_barcode_<?php echo $p['id']; ?>" class="form-control form-control-sm" placeholder="Opsional">
+                                                         </div>
+                                                     </div>
+                                                     <button type="button" class="btn btn-sm btn-danger w-100" onclick="saveNewVariant(<?php echo $p['id']; ?>)">Tambahkan</button>
+                                                 </div>
+                                             </div>
+                                         </div>
+
                                         <select name="kategori" class="form-select mb-2" required>
                                             <?php
                                             $cats2 = mysqli_query($koneksi, "SELECT * FROM categories");
@@ -163,10 +287,11 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
                 </table>
             </div>
         </div>
+        </div>
     </div>
 
     <div class="modal fade" id="tambah" tabindex="-1">
-        <div class="modal-dialog"><div class="modal-content">
+        <div class="modal-dialog modal-lg"><div class="modal-content">
             <form method="POST" enctype="multipart/form-data">
                 <div class="modal-header"><h5>Produk Baru</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
                 <div class="modal-body">
@@ -207,7 +332,7 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
                             </div>
                         <?php endwhile; ?>
                     </div>
-                    <div class="row mb-2">
+                    <div class="row mb-3">
                         <div class="col-6">
                             <input type="number" name="harga_grosir" class="form-control" placeholder="Harga Grosir (opsional)">
                             <small class="text-muted">Kosongkan jika tidak ada</small>
@@ -217,6 +342,52 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
                             <small class="text-muted">Minimal beli untuk harga grosir</small>
                         </div>
                     </div>
+
+                    <!-- Varian Kemasan Section -->
+                    <div class="card p-3 bg-light mb-3">
+                        <h6 class="fw-bold text-danger mb-2 small"><i class="bi bi-box-seam"></i> Kelola Kemasan (Satuan Varian)</h6>
+                        <div class="alert alert-info py-2 px-3 small mb-2" style="font-size:0.75rem;">
+                            <i class="bi bi-info-circle-fill"></i> Varian default <strong>Pcs</strong> akan dibuat otomatis dengan harga dasar di atas. Anda bisa menambahkan kemasan besar lainnya di bawah ini.
+                        </div>
+                        <div id="varian-list-add">
+                            <!-- Varian baru yang ditambahkan kasir akan di-render di sini secara dinamis -->
+                        </div>
+                        
+                        <div class="border-top pt-2 mt-2">
+                            <button type="button" class="btn btn-sm btn-outline-danger w-100 mb-2" onclick="toggleAddVariant('add')">
+                                <i class="bi bi-plus-lg"></i> Tambah Kemasan
+                            </button>
+                            <div id="add-variant-box-add" style="display:none;" class="p-3 border rounded bg-white shadow-sm">
+                                <div class="row g-2 mb-2">
+                                    <div class="col-6">
+                                        <label class="form-label" style="font-size:0.75rem;">Nama Varian</label>
+                                        <select id="new_v_nama_add" class="form-select form-select-sm">
+                                            <?php
+                                            $satuan_add_q = mysqli_query($koneksi, "SELECT nama_satuan FROM varian_satuan WHERE nama_satuan != 'Pcs' ORDER BY id ASC");
+                                            while($sa = mysqli_fetch_assoc($satuan_add_q)):
+                                            ?>
+                                                <option value="<?php echo htmlspecialchars($sa['nama_satuan']); ?>"><?php echo htmlspecialchars($sa['nama_satuan']); ?></option>
+                                            <?php endwhile; ?>
+                                        </select>
+                                    </div>
+                                    <div class="col-6">
+                                        <label class="form-label" style="font-size:0.75rem;">Faktor Kali (Isi)</label>
+                                        <input type="number" id="new_v_faktor_add" class="form-control form-control-sm" placeholder="Contoh: 10">
+                                    </div>
+                                    <div class="col-6">
+                                        <label class="form-label" style="font-size:0.75rem;">Harga Varian (Rp)</label>
+                                        <input type="number" id="new_v_harga_add" class="form-control form-control-sm" placeholder="Contoh: 28000">
+                                    </div>
+                                    <div class="col-6">
+                                        <label class="form-label" style="font-size:0.75rem;">Barcode Varian</label>
+                                        <input type="text" id="new_v_barcode_add" class="form-control form-control-sm" placeholder="Opsional">
+                                    </div>
+                                </div>
+                                <button type="button" class="btn btn-sm btn-danger w-100" onclick="saveNewVariant('add')">Tambahkan</button>
+                            </div>
+                        </div>
+                    </div>
+
                     <select name="kategori" class="form-select mb-2" required>
                         <option value="">Pilih Kategori</option>
                         <?php
@@ -390,11 +561,32 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
         mysqli_query($koneksi, "INSERT INTO produk (nama_produk, barcode, harga, harga_grosir, min_qty_grosir, deskripsi, foto, kategori_id, stok) VALUES ('$_POST[nama]',$barcode,'$_POST[harga]',$harga_grosir,$min_qty,'$_POST[desk]','$f', $kat, $stok_pusat)");
         
         $new_id = mysqli_insert_id($koneksi);
-        if ($new_id && isset($_POST['stok_cabang'])) {
-            foreach ($_POST['stok_cabang'] as $id_cabang => $stok_qty) {
-                $id_cabang = (int)$id_cabang;
-                $stok_qty = (int)$stok_qty;
-                mysqli_query($koneksi, "INSERT INTO stok_cabang (id_produk, id_cabang, stok) VALUES ('$new_id', '$id_cabang', '$stok_qty')");
+        if ($new_id) {
+            // Auto-initialize default "Pcs" packaging variant
+            $base_harga = (int)$_POST['harga'];
+            mysqli_query($koneksi, "INSERT INTO produk_kemasan (id_produk, nama_satuan, faktor_kali, harga, barcode) VALUES ($new_id, 'Pcs', 1, $base_harga, $barcode)");
+
+            // Insert custom packaging variants if added during product creation
+            if (isset($_POST['new_variant_nama'])) {
+                foreach ($_POST['new_variant_nama'] as $idx => $v_nama) {
+                    $v_nama = mysqli_real_escape_string($koneksi, $v_nama);
+                    $v_faktor = (int)$_POST['new_variant_faktor'][$idx];
+                    $v_harga = (int)$_POST['new_variant_harga'][$idx];
+                    $v_barcode = !empty($_POST['new_variant_barcode'][$idx]) ? "'" . mysqli_real_escape_string($koneksi, $_POST['new_variant_barcode'][$idx]) . "'" : "NULL";
+                    
+                    if (!empty($v_nama) && $v_faktor > 0 && $v_harga > 0 && $v_nama !== 'Pcs') {
+                        mysqli_query($koneksi, "INSERT INTO produk_kemasan (id_produk, nama_satuan, faktor_kali, harga, barcode) 
+                                                VALUES ($new_id, '$v_nama', $v_faktor, $v_harga, $v_barcode)");
+                    }
+                }
+            }
+
+            if (isset($_POST['stok_cabang'])) {
+                foreach ($_POST['stok_cabang'] as $id_cabang => $stok_qty) {
+                    $id_cabang = (int)$id_cabang;
+                    $stok_qty = (int)$stok_qty;
+                    mysqli_query($koneksi, "INSERT INTO stok_cabang (id_produk, id_cabang, stok) VALUES ('$new_id', '$id_cabang', '$stok_qty')");
+                }
             }
         }
         echo "<script>window.location='produk.php';</script>";
@@ -457,6 +649,45 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
                 }
             }
         }
+
+        // Update existing packaging variants
+        if (isset($_POST['variant_id'])) {
+            foreach ($_POST['variant_id'] as $v_id => $val) {
+                $v_id = (int)$v_id;
+                $v_nama = mysqli_real_escape_string($koneksi, $_POST['variant_nama'][$v_id]);
+                $v_faktor = (int)$_POST['variant_faktor'][$v_id];
+                $v_harga = (int)$_POST['variant_harga'][$v_id];
+                $v_barcode = !empty($_POST['variant_barcode'][$v_id]) ? "'" . mysqli_real_escape_string($koneksi, $_POST['variant_barcode'][$v_id]) . "'" : "NULL";
+                
+                // If it is 'Pcs' and factor is 1, keep it read-only for safety
+                if ($v_nama == 'Pcs') {
+                    $v_faktor = 1;
+                }
+                
+                mysqli_query($koneksi, "UPDATE produk_kemasan SET 
+                    nama_satuan = '$v_nama', 
+                    faktor_kali = '$v_faktor', 
+                    harga = '$v_harga', 
+                    barcode = $v_barcode 
+                    WHERE id_kemasan = $v_id");
+            }
+        }
+
+        // Insert new packaging variants
+        if (isset($_POST['new_variant_nama'])) {
+            foreach ($_POST['new_variant_nama'] as $idx => $v_nama) {
+                $v_nama = mysqli_real_escape_string($koneksi, $v_nama);
+                $v_faktor = (int)$_POST['new_variant_faktor'][$idx];
+                $v_harga = (int)$_POST['new_variant_harga'][$idx];
+                $v_barcode = !empty($_POST['new_variant_barcode'][$idx]) ? "'" . mysqli_real_escape_string($koneksi, $_POST['new_variant_barcode'][$idx]) . "'" : "NULL";
+                
+                if (!empty($v_nama) && $v_faktor > 0 && $v_harga > 0) {
+                    mysqli_query($koneksi, "INSERT INTO produk_kemasan (id_produk, nama_satuan, faktor_kali, harga, barcode) 
+                                            VALUES ('$id', '$v_nama', '$v_faktor', '$v_harga', $v_barcode)");
+                }
+            }
+        }
+
         echo "<script>window.location='produk.php';</script>";
     }
     if(isset($_GET['hapus'])) {
@@ -743,6 +974,74 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
                 $('#bulk_items_json').val('');
             });
         });
+
+        const listSatuanKemasan = <?php 
+            $sats_arr = [];
+            $q_sats = mysqli_query($koneksi, "SELECT nama_satuan FROM varian_satuan WHERE nama_satuan != 'Pcs' ORDER BY id ASC");
+            while($s = mysqli_fetch_assoc($q_sats)) {
+                $sats_arr[] = $s['nama_satuan'];
+            }
+            echo json_encode($sats_arr);
+        ?>;
+
+        function toggleAddVariant(productId) {
+            const box = document.getElementById('add-variant-box-' + productId);
+            if (box.style.display === 'none') {
+                box.style.display = 'block';
+                document.getElementById('new_v_nama_' + productId).focus();
+            } else {
+                box.style.display = 'none';
+            }
+        }
+
+        function saveNewVariant(productId) {
+            const nama = document.getElementById('new_v_nama_' + productId).value.trim();
+            const faktor = parseInt(document.getElementById('new_v_faktor_' + productId).value) || 0;
+            const harga = parseInt(document.getElementById('new_v_harga_' + productId).value) || 0;
+            const barcode = document.getElementById('new_v_barcode_' + productId).value.trim();
+
+            if (nama === '' || faktor <= 0 || harga <= 0) {
+                alert('Nama varian, isi/faktor kali, dan harga harus diisi dengan benar!');
+                return;
+            }
+
+            let optionsHTML = '';
+            listSatuanKemasan.forEach(sat => {
+                optionsHTML += `<option value="${sat}" ${sat === nama ? 'selected' : ''}>${sat}</option>`;
+            });
+
+            const list = document.getElementById('varian-list-' + productId);
+            const rowId = 'new_' + Date.now();
+            const rowHTML = `
+                <div class="row g-2 mb-2 align-items-center variant-row bg-warning bg-opacity-5 p-2 rounded border border-warning border-opacity-25" id="row_${rowId}">
+                    <div class="col-4">
+                        <select name="new_variant_nama[]" class="form-select form-select-sm" required>
+                            ${optionsHTML}
+                        </select>
+                    </div>
+                    <div class="col-3">
+                        <input type="number" name="new_variant_faktor[]" class="form-control form-control-sm text-end font-monospace" value="${faktor}" placeholder="Isi" required>
+                    </div>
+                    <div class="col-4">
+                        <input type="number" name="new_variant_harga[]" class="form-control form-control-sm text-end font-monospace" value="${harga}" placeholder="Harga" required>
+                    </div>
+                    <div class="col-1 text-center">
+                        <a href="javascript:void(0)" class="text-danger small" onclick="document.getElementById('row_${rowId}').remove()"><i class="bi bi-trash"></i></a>
+                    </div>
+                    <div class="col-12 mt-1">
+                        <input type="text" name="new_variant_barcode[]" class="form-control form-control-sm" value="${barcode}" placeholder="Barcode Varian (Opsional)">
+                    </div>
+                </div>
+            `;
+            list.insertAdjacentHTML('beforeend', rowHTML);
+
+            // Reset inputs & hide
+            document.getElementById('new_v_nama_' + productId).value = listSatuanKemasan[0] || '';
+            document.getElementById('new_v_faktor_' + productId).value = '';
+            document.getElementById('new_v_harga_' + productId).value = '';
+            document.getElementById('new_v_barcode_' + productId).value = '';
+            document.getElementById('add-variant-box-' + productId).style.display = 'none';
+        }
     </script>
 </body>
 </html>
